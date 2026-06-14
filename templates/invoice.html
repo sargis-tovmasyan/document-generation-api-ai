@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Invoice {{ invoice.invoice_number }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 24mm 18mm;
+    }
+
+    body {
+      color: #1f2937;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .header {
+      align-items: flex-start;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 36px;
+    }
+
+    h1 {
+      color: #111827;
+      font-size: 32px;
+      letter-spacing: 2px;
+      margin: 0;
+    }
+
+    .invoice-meta {
+      text-align: right;
+    }
+
+    .parties {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 32px;
+    }
+
+    .party {
+      flex: 1;
+    }
+
+    .label {
+      color: #6b7280;
+      font-size: 10px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+
+    .party-name {
+      font-size: 15px;
+      font-weight: bold;
+    }
+
+    .multiline {
+      white-space: pre-line;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin-bottom: 24px;
+      width: 100%;
+    }
+
+    th {
+      background: #f3f4f6;
+      color: #374151;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      padding: 10px 8px;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 12px 8px;
+      vertical-align: top;
+    }
+
+    .number {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .totals {
+      margin-left: auto;
+      width: 260px;
+    }
+
+    .totals td {
+      border: 0;
+      padding: 5px 8px;
+    }
+
+    .total-row {
+      border-top: 2px solid #111827;
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    .details {
+      border-top: 1px solid #e5e7eb;
+      margin-top: 36px;
+      padding-top: 20px;
+    }
+
+    .detail-block {
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>INVOICE</h1>
+      <div>{{ invoice.invoice_number }}</div>
+    </div>
+    <div class="invoice-meta">
+      <div><strong>Issue date:</strong> {{ invoice.issue_date }}</div>
+      {% if invoice.due_date %}
+      <div><strong>Due date:</strong> {{ invoice.due_date }}</div>
+      {% endif %}
+      <div><strong>Currency:</strong> {{ invoice.currency }}</div>
+    </div>
+  </div>
+
+  <div class="parties">
+    <div class="party">
+      <div class="label">From</div>
+      <div class="party-name">{{ invoice.business.name }}</div>
+      {% if invoice.business.email %}<div>{{ invoice.business.email }}</div>{% endif %}
+      {% if invoice.business.address %}
+      <div class="multiline">{{ invoice.business.address }}</div>
+      {% endif %}
+    </div>
+    <div class="party">
+      <div class="label">Bill to</div>
+      <div class="party-name">{{ invoice.client.name }}</div>
+      {% if invoice.client.email %}<div>{{ invoice.client.email }}</div>{% endif %}
+      {% if invoice.client.address %}
+      <div class="multiline">{{ invoice.client.address }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th class="number">Quantity</th>
+        <th class="number">Unit price</th>
+        <th class="number">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.description }}</td>
+        <td class="number">{{ item.quantity }}</td>
+        <td class="number">{{ "%.2f"|format(item.unit_price) }}</td>
+        <td class="number">{{ "%.2f"|format(item.amount) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <table class="totals">
+    <tr>
+      <td>Subtotal</td>
+      <td class="number">{{ invoice.currency }} {{ "%.2f"|format(subtotal) }}</td>
+    </tr>
+    <tr class="total-row">
+      <td>Total</td>
+      <td class="number">{{ invoice.currency }} {{ "%.2f"|format(total) }}</td>
+    </tr>
+  </table>
+
+  {% if invoice.notes or invoice.payment_terms %}
+  <div class="details">
+    {% if invoice.notes %}
+    <div class="detail-block">
+      <div class="label">Notes</div>
+      <div class="multiline">{{ invoice.notes }}</div>
+    </div>
+    {% endif %}
+    {% if invoice.payment_terms %}
+    <div class="detail-block">
+      <div class="label">Payment terms</div>
+      <div class="multiline">{{ invoice.payment_terms }}</div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</body>
+</html>

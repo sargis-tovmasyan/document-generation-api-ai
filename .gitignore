@@ -1,0 +1,8 @@
+.venv/
+.DS_Store
+__pycache__/
+*.py[cod]
+data/*
+generated/*
+!data/.gitkeep
+!generated/invoices/.gitkeep
