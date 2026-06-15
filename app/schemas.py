@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -108,3 +109,126 @@ class AiTestRequest(BaseModel):
 
 class AiTestResponse(BaseModel):
     answer: str
+
+
+class InvoiceDraftParty(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=320)
+    address: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("name", "email", "address", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class InvoiceDraftItem(BaseModel):
+    description: str | None = Field(default=None, max_length=500)
+    quantity: Decimal | None = Field(
+        default=None,
+        gt=0,
+        max_digits=12,
+        decimal_places=4,
+    )
+    unit_price: Decimal | None = Field(
+        default=None,
+        ge=0,
+        max_digits=14,
+        decimal_places=2,
+    )
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def strip_optional_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_serializer("quantity", "unit_price", when_used="json")
+    def serialize_decimal(self, value: Decimal | None) -> float | None:
+        return float(value) if value is not None else None
+
+
+class InvoiceDraft(BaseModel):
+    document_type: Literal["invoice"] = "invoice"
+    invoice_number: str | None = Field(default=None, max_length=100)
+    issue_date: date | None = None
+    due_date: date | None = None
+    currency: str | None = Field(default=None, max_length=3)
+    business: InvoiceDraftParty = Field(default_factory=InvoiceDraftParty)
+    client: InvoiceDraftParty = Field(default_factory=InvoiceDraftParty)
+    items: list[InvoiceDraftItem] = Field(default_factory=list, max_length=100)
+    notes: str | None = Field(default=None, max_length=5000)
+    payment_terms: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("invoice_number", "notes", "payment_terms", mode="before")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def normalize_optional_currency(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        if not normalized:
+            return None
+        if len(normalized) != 3 or not normalized.isalpha():
+            raise ValueError("currency must contain exactly three letters")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_due_date(self) -> "InvoiceDraft":
+        if (
+            self.issue_date is not None
+            and self.due_date is not None
+            and self.due_date < self.issue_date
+        ):
+            raise ValueError("due_date must be on or after issue_date")
+        return self
+
+
+class AiInvoiceExtractRequest(AiTestRequest):
+    pass
+
+
+class AiInvoiceExtractResponse(BaseModel):
+    status: Literal["missing_fields", "ready"]
+    draft: InvoiceDraft
+    missing_fields: list[str]
+
+
+class AiInvoiceErrorResponse(BaseModel):
+    status: Literal["llm_unavailable", "ai_parse_error"]
+    message: str
+
+
+class InvoiceDraftCompleteRequest(BaseModel):
+    draft: InvoiceDraft
+
+
+class InvoiceDraftMissingResponse(BaseModel):
+    status: Literal["missing_fields"]
+    missing_fields: list[str]
+
+
+class InvoiceDraftCreatedResponse(BaseModel):
+    status: Literal["created"]
+    invoice_id: int
+    invoice_number: str
+    subtotal: Decimal
+    total: Decimal
+    currency: str
+    pdf_url: str
+
+    @field_serializer("subtotal", "total", when_used="json")
+    def serialize_money(self, value: Decimal) -> float:
+        return float(value)

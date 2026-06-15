@@ -12,12 +12,14 @@ Lightweight FastAPI MVP for generating invoice PDFs and calling a local
 - Generate and store PDFs with WeasyPrint.
 - List and download generated invoices.
 - Send a test prompt to `llama-server`.
+- Extract a structured invoice draft from a chat message.
+- Report backend-calculated missing invoice fields.
+- Complete a validated draft and generate its PDF.
 - Limit LLM processing to one request at a time.
 - Persist SQLite and generated files through Docker volumes.
 
 Not implemented yet:
 
-- Converting chat messages into structured invoice data.
 - AI-generated or user-editable templates.
 - Authentication and rate limiting.
 - Taxes, discounts, queues, and additional document types.
@@ -47,8 +49,11 @@ app/
   schemas.py
   routes/
     ai.py
+    ai_invoice.py
     invoices.py
   services/
+    ai_invoice_extractor.py
+    invoice_draft_validator.py
     invoice_service.py
     llm_client.py
     pdf_service.py
@@ -77,8 +82,8 @@ Available variables:
 | `LLM_BASE_URL` | `http://127.0.0.1:8080` | Reachable llama-server address |
 | `LLM_COMPLETION_ENDPOINT` | `/completion` | llama.cpp completion route |
 | `LLM_TIMEOUT_SECONDS` | `120` | Request timeout |
-| `LLM_MAX_TOKENS` | `80` | Maximum generated tokens |
-| `LLM_TEMPERATURE` | `0.4` | Generation temperature |
+| `LLM_MAX_TOKENS` | `256` | Maximum generated tokens |
+| `LLM_TEMPERATURE` | `0.2` | Generation temperature |
 
 `.env` is ignored by Git.
 
@@ -165,20 +170,14 @@ Then restart:
 ./start.sh
 ```
 
-Do not use `network_mode: host` for local Docker Desktop testing. The current
-Compose file publishes `8000:8000` so `localhost:8000` works on macOS.
+The repository Compose file uses Linux host networking for VPS deployment. To
+run the API container through Docker Desktop, use a local Compose override with
+`ports: ["8000:8000"]` and remove host networking.
 
 ## Linux VPS Deployment
 
-When the API container and host-bound llama-server run on the same Linux VPS,
-change the API service in `docker-compose.yml` from:
-
-```yaml
-ports:
-  - "8000:8000"
-```
-
-to:
+The repository is configured for the API container and host-bound llama-server
+to run on the same Linux VPS:
 
 ```yaml
 network_mode: "host"
@@ -190,8 +189,8 @@ Set the VPS `.env`:
 LLM_BASE_URL=http://127.0.0.1:8080
 LLM_COMPLETION_ENDPOINT=/completion
 LLM_TIMEOUT_SECONDS=120
-LLM_MAX_TOKENS=80
-LLM_TEMPERATURE=0.4
+LLM_MAX_TOKENS=256
+LLM_TEMPERATURE=0.2
 ```
 
 Then run:
@@ -240,6 +239,87 @@ Response shape:
 ```
 
 If llama-server is unreachable, the endpoint returns HTTP `502`.
+
+### Extract Invoice Draft From Chat
+
+```http
+POST /ai/invoice/extract
+```
+
+```bash
+curl -X POST http://localhost:8000/ai/invoice/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Create an invoice for Alex for website design, 300 dollars."
+  }'
+```
+
+The response contains:
+
+- `status: "missing_fields"` when required information is absent.
+- `status: "ready"` when the draft is complete.
+- The validated `draft`.
+- A backend-calculated `missing_fields` list.
+
+The backend ignores any missing-field list suggested by the model. An offline
+LLM returns HTTP `503` with `status: "llm_unavailable"`. Invalid model JSON
+returns HTTP `422` with `status: "ai_parse_error"`.
+
+### Complete Draft And Generate PDF
+
+```http
+POST /invoices/draft/complete
+```
+
+```bash
+curl -X POST http://localhost:8000/invoices/draft/complete \
+  -H "Content-Type: application/json" \
+  -d '{
+    "draft": {
+      "document_type": "invoice",
+      "invoice_number": "INV-001",
+      "issue_date": "2026-06-15",
+      "due_date": "2026-06-22",
+      "currency": "USD",
+      "business": {
+        "name": "Sargis Studio",
+        "email": "hello@example.com",
+        "address": "Yerevan, Armenia"
+      },
+      "client": {
+        "name": "Alex",
+        "email": "alex@example.com",
+        "address": null
+      },
+      "items": [
+        {
+          "description": "Website design",
+          "quantity": 1,
+          "unit_price": 300
+        }
+      ],
+      "notes": "Thank you for your business.",
+      "payment_terms": "Payment due within 7 days."
+    }
+  }'
+```
+
+Successful response:
+
+```json
+{
+  "status": "created",
+  "invoice_id": 1,
+  "invoice_number": "INV-001",
+  "subtotal": 300.0,
+  "total": 300.0,
+  "currency": "USD",
+  "pdf_url": "/invoices/1/download"
+}
+```
+
+Incomplete drafts return `status: "missing_fields"` and do not create database
+records or PDF files.
 
 ### Create Invoice
 
@@ -349,6 +429,10 @@ Tests cover:
 - LLM request payload and answer parsing.
 - LLM HTTP, invalid JSON, and empty-answer failures.
 - AI route success and HTTP `502` mapping.
+- Strict invoice JSON extraction and validation.
+- Backend missing-field detection.
+- AI extraction error responses.
+- Completed-draft invoice creation response.
 
 The unit tests mock external LLM calls and do not contact the VPS.
 
@@ -364,5 +448,5 @@ The unit tests mock external LLM calls and do not contact the VPS.
 
 `SmolLM2-360M-Instruct-Q4_K_M.gguf` is suitable for short text generation and
 basic extraction experiments, but it should not be trusted for calculations or
-business decisions. Structured invoice extraction is the next planned AI
-feature and must be validated by Pydantic before invoice creation.
+business decisions. All extracted data is validated by Pydantic, and the
+backend calculates trusted totals before invoice creation.

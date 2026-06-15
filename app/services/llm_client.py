@@ -24,12 +24,21 @@ class LlmClient:
 
     async def complete(self, message: str) -> str:
         prompt = f"User: {message}\nAssistant:"
+        return await self.complete_prompt(prompt)
+
+    async def complete_prompt(
+        self,
+        prompt: str,
+        json_schema: dict | None = None,
+    ) -> str:
         payload = {
             "prompt": prompt,
             "n_predict": LLM_MAX_TOKENS,
             "temperature": LLM_TEMPERATURE,
             "stop": ["User:"],
         }
+        if json_schema is not None:
+            payload["json_schema"] = json_schema
 
         try:
             async with self._request_lock:

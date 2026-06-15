@@ -1,7 +1,18 @@
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 
-from app.schemas import InvoiceCreate, InvoiceCreateResponse, InvoiceListItem
+from app.schemas import (
+    InvoiceCreate,
+    InvoiceCreateResponse,
+    InvoiceDraftCompleteRequest,
+    InvoiceDraftCreatedResponse,
+    InvoiceDraftMissingResponse,
+    InvoiceListItem,
+)
+from app.services.invoice_draft_validator import (
+    find_missing_invoice_fields,
+    invoice_draft_to_create,
+)
 from app.services.invoice_service import (
     InvoiceNumberConflictError,
     create_invoice,
@@ -10,6 +21,40 @@ from app.services.invoice_service import (
 )
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+
+@router.post(
+    "/draft/complete",
+    response_model=InvoiceDraftCreatedResponse | InvoiceDraftMissingResponse,
+)
+def complete_invoice_draft(
+    payload: InvoiceDraftCompleteRequest,
+) -> InvoiceDraftCreatedResponse | InvoiceDraftMissingResponse:
+    missing_fields = find_missing_invoice_fields(payload.draft)
+    if missing_fields:
+        return InvoiceDraftMissingResponse(
+            status="missing_fields",
+            missing_fields=missing_fields,
+        )
+
+    invoice = invoice_draft_to_create(payload.draft)
+    try:
+        created_invoice = create_invoice(invoice)
+    except InvoiceNumberConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
+
+    return InvoiceDraftCreatedResponse(
+        status="created",
+        invoice_id=created_invoice["id"],
+        invoice_number=created_invoice["invoice_number"],
+        subtotal=created_invoice["subtotal"],
+        total=created_invoice["total"],
+        currency=created_invoice["currency"],
+        pdf_url=f"/invoices/{created_invoice['id']}/download",
+    )
 
 
 @router.post("", response_model=InvoiceCreateResponse, status_code=status.HTTP_201_CREATED)

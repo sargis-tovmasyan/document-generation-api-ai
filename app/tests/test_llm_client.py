@@ -91,6 +91,14 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
         ):
             await LlmClient().complete("Create an invoice note.")
 
+    async def test_includes_json_schema_when_provided(self) -> None:
+        schema = {"type": "object"}
+
+        with patch("app.services.llm_client.httpx.AsyncClient", FakeAsyncClient):
+            await LlmClient().complete_prompt("Return JSON.", json_schema=schema)
+
+        self.assertEqual(FakeAsyncClient.last_payload["json_schema"], schema)
+
     async def test_rejects_invalid_json(self) -> None:
         FakeAsyncClient.response = FakeResponse(invalid_json=True)
 

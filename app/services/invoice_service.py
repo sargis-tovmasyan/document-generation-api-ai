@@ -117,7 +117,9 @@ def create_invoice(invoice: InvoiceCreate) -> dict:
     return {
         "id": invoice_id,
         "invoice_number": invoice.invoice_number,
+        "subtotal": subtotal,
         "total": total,
+        "currency": invoice.currency,
         "pdf_url": f"/generated/invoices/{filename}",
     }
 
