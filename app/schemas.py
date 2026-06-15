@@ -16,7 +16,7 @@ class Party(BaseModel):
     email: str | None = Field(default=None, max_length=320)
     address: str | None = Field(default=None, max_length=1000)
 
-    @field_validator("name", "email", "address")
+    @field_validator("name", "email", "address", mode="before")
     @classmethod
     def strip_text(cls, value: str | None) -> str | None:
         return value.strip() if value is not None else None
@@ -27,7 +27,7 @@ class InvoiceItemCreate(BaseModel):
     quantity: Decimal = Field(gt=0, max_digits=12, decimal_places=4)
     unit_price: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
 
-    @field_validator("description")
+    @field_validator("description", mode="before")
     @classmethod
     def strip_description(cls, value: str) -> str:
         return value.strip()
@@ -44,12 +44,12 @@ class InvoiceCreate(BaseModel):
     notes: str | None = Field(default=None, max_length=5000)
     payment_terms: str | None = Field(default=None, max_length=2000)
 
-    @field_validator("invoice_number", "notes", "payment_terms")
+    @field_validator("invoice_number", "notes", "payment_terms", mode="before")
     @classmethod
     def strip_text(cls, value: str | None) -> str | None:
         return value.strip() if value is not None else None
 
-    @field_validator("currency")
+    @field_validator("currency", mode="before")
     @classmethod
     def normalize_currency(cls, value: str) -> str:
         normalized = value.strip().upper()
@@ -97,7 +97,7 @@ class InvoiceListItem(BaseModel):
 class AiTestRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
-    @field_validator("message")
+    @field_validator("message", mode="before")
     @classmethod
     def strip_message(cls, value: str) -> str:
         stripped = value.strip()

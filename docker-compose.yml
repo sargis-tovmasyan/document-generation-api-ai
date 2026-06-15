@@ -1,8 +1,7 @@
 services:
   api:
     build: .
-    ports:
-      - "8000:8000"
+    network_mode: "host"
     environment:
       LLM_BASE_URL: "${LLM_BASE_URL:-http://127.0.0.1:8080}"
       LLM_COMPLETION_ENDPOINT: "${LLM_COMPLETION_ENDPOINT:-/completion}"
