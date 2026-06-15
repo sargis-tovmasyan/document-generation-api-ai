@@ -92,3 +92,19 @@ class InvoiceListItem(BaseModel):
     @field_serializer("total", when_used="json")
     def serialize_total(self, value: Decimal) -> float:
         return float(value)
+
+
+class AiTestRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("message must not be empty")
+        return stripped
+
+
+class AiTestResponse(BaseModel):
+    answer: str

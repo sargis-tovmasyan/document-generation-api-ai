@@ -1,11 +1,22 @@
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
 DATA_DIR = BASE_DIR / "data"
 GENERATED_DIR = BASE_DIR / "generated"
 INVOICE_PDF_DIR = GENERATED_DIR / "invoices"
 TEMPLATES_DIR = BASE_DIR / "templates"
 DATABASE_PATH = DATA_DIR / "app.db"
+
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+LLM_COMPLETION_ENDPOINT = os.getenv("LLM_COMPLETION_ENDPOINT", "/completion")
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "80"))
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.4"))
 
 
 def ensure_directories() -> None:

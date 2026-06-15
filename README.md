@@ -15,12 +15,50 @@ are persisted in the mounted `data/` and `generated/` directories.
 ## Endpoints
 
 - `GET /health`
+- `POST /ai/test`
 - `POST /invoices`
 - `GET /invoices`
 - `GET /invoices/{invoice_id}/download`
 - `GET /generated/invoices/{filename}`
 
 Interactive API documentation is available at `http://localhost:8000/docs`.
+
+## Local LLM
+
+Run `llama-server` on the VPS host:
+
+```bash
+cd ~/llama.cpp
+
+./build/bin/llama-server \
+  -m models/SmolLM2-360M-Instruct-Q4_K_M.gguf \
+  --host 127.0.0.1 \
+  --port 8080 \
+  -c 512
+```
+
+The Compose service publishes the API on port `8000`. Configure `LLM_BASE_URL`
+with an address reachable from the API container. Do not expose `llama-server`
+publicly without protection.
+
+LLM settings can be overridden through environment variables. See
+`.env.example` for the available values.
+
+Test the integration:
+
+```bash
+curl -X POST http://localhost:8000/ai/test \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Create a short invoice note for website design."}'
+```
+
+Expected response shape:
+
+```json
+{
+  "answer": "Thank you for your business."
+}
+```
 
 ## Create an invoice
 
