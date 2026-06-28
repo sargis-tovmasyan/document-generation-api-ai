@@ -4,12 +4,12 @@ from decimal import Decimal
 
 from pydantic import ValidationError
 
-from app.schemas import InvoiceDraft
+from app.schemas import InvoiceDraft, InvoiceTemplateLanguage
 from app.services.llm_client import LlmClient, llm_client
 
 INVOICE_EXTRACTION_PROMPT = """Extract invoice data from the user message.
 Return only one JSON object matching these fields:
-document_type, invoice_number, issue_date, due_date, currency,
+document_type, invoice_number, issue_date, due_date, currency, template_language,
 business{name,email,address}, client{name,email,address},
 items[{description,quantity,unit_price}], notes, payment_terms, missing_fields.
 
@@ -18,6 +18,8 @@ Rules:
 - Copy or directly normalize only information stated by the user.
 - Omit unknown fields. Never invent example values.
 - Dates must use ISO format YYYY-MM-DD when the user provides a date.
+- template_language must be "en" for English invoice text or "ru" for Russian invoice text.
+- Choose template_language from the user's message language or explicit words like English, Russian, на русском, or на английском.
 - "for NAME" or "to NAME" identifies the client. "from NAME" identifies the business.
 - For one service with one amount, quantity is 1 and unit_price is that amount.
 - Include exactly one item per service. Never duplicate items.
@@ -37,6 +39,7 @@ INVOICE_EXTRACTION_JSON_SCHEMA = {
         "issue_date": {"type": ["string", "null"]},
         "due_date": {"type": ["string", "null"]},
         "currency": {"type": ["string", "null"]},
+        "template_language": {"type": ["string", "null"], "enum": ["ru", "en", None]},
         "business": {
             "type": "object",
             "properties": {
@@ -204,6 +207,10 @@ def ground_raw_invoice_draft(
             user_message,
         ),
         "currency": currency,
+        "template_language": _select_template_language(
+            raw_draft.get("template_language"),
+            user_message,
+        ),
         "business": {
             "name": business_name,
             "email": _ground_raw_text(
@@ -238,6 +245,31 @@ def ground_raw_invoice_draft(
 def _ground_raw_text(value: object, user_message: str) -> str | None:
     if isinstance(value, str) and value and value.lower() in user_message.lower():
         return value.strip()
+    return None
+
+
+def _select_template_language(
+    raw_value: object,
+    user_message: str,
+) -> InvoiceTemplateLanguage:
+    explicit_language = _detect_explicit_template_language(user_message)
+    if explicit_language is not None:
+        return explicit_language
+
+    if isinstance(raw_value, str) and raw_value.strip().lower() in {"ru", "en"}:
+        return raw_value.strip().lower()  # type: ignore[return-value]
+
+    if re.search(r"[а-яё]", user_message.lower()):
+        return "ru"
+    return "en"
+
+
+def _detect_explicit_template_language(user_message: str) -> InvoiceTemplateLanguage | None:
+    message_lower = user_message.lower()
+    if any(marker in message_lower for marker in ("english", "англий")):
+        return "en"
+    if any(marker in message_lower for marker in ("russian", "русск")):
+        return "ru"
     return None
 
 
