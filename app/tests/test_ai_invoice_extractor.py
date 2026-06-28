@@ -37,10 +37,12 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(draft.currency, "USD")
+        self.assertEqual(draft.template_language, "en")
         self.assertEqual(draft.client.name, "Alex")
         self.assertEqual(draft.items[0].unit_price, 300)
         prompt = client.complete_prompt.await_args.args[0]
         self.assertIn("Return only one JSON object", prompt)
+        self.assertIn("template_language", prompt)
         self.assertIn(
             "Create an invoice for Alex for website design, 300 dollars.",
             prompt,
@@ -49,6 +51,34 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
             "json_schema",
             client.complete_prompt.await_args.kwargs,
         )
+
+    async def test_uses_llm_template_language_when_supported(self) -> None:
+        client = AsyncMock()
+        client.complete_prompt.return_value = """
+        {
+          "document_type": "invoice",
+          "template_language": "ru",
+          "currency": "USD",
+          "business": {"name": null, "email": null, "address": null},
+          "client": {"name": "Alex", "email": null, "address": null},
+          "items": [
+            {
+              "description": "Website design",
+              "quantity": 1,
+              "unit_price": 300
+            }
+          ],
+          "notes": null,
+          "payment_terms": null,
+          "missing_fields": []
+        }
+        """
+
+        draft = await AiInvoiceExtractor(client).extract(
+            "Create a Russian invoice for Alex for website design, 300 dollars."
+        )
+
+        self.assertEqual(draft.template_language, "ru")
 
     async def test_accepts_rub_currency(self) -> None:
         client = AsyncMock()
