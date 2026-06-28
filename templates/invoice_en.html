@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Invoice {{ invoice.invoice_number }}</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 12mm 14mm;
+    }
+
+    body {
+      color: #111111;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.25;
+      margin: 0;
+    }
+
+    .topbar {
+      color: #1f5f9f;
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 48px;
+      text-align: right;
+    }
+
+    .topbar div + div {
+      color: #111111;
+      margin-top: 4px;
+    }
+
+    .parties {
+      border: 3px solid #111111;
+      display: flex;
+      margin-bottom: 14px;
+      min-height: 92px;
+    }
+
+    .party {
+      box-sizing: border-box;
+      flex: 1;
+      padding: 6px 8px 10px;
+    }
+
+    .party + .party {
+      border-left: 3px solid #111111;
+    }
+
+    .label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+    }
+
+    .party-name {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+
+    .multiline {
+      white-space: pre-line;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    .items {
+      margin-bottom: 12px;
+    }
+
+    .items th {
+      background: #dbe7f3;
+      border: 2px solid #111111;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 8px;
+      text-align: center;
+    }
+
+    .items td {
+      border: 2px solid #111111;
+      font-size: 12px;
+      padding: 4px 8px;
+      vertical-align: top;
+    }
+
+    .index {
+      text-align: center;
+      width: 34px;
+    }
+
+    .description {
+      font-weight: 700;
+    }
+
+    .number {
+      text-align: right;
+      white-space: nowrap;
+      width: 140px;
+    }
+
+    .total-label {
+      background: #dbe7f3;
+      font-weight: 700;
+      text-align: left;
+    }
+
+    .total-value {
+      background: #dbe7f3;
+      font-size: 14px;
+      font-weight: 700;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .amount-words {
+      font-size: 13px;
+      font-style: italic;
+      font-weight: 700;
+      margin: 4px 0 34px;
+      text-align: right;
+    }
+
+    .footer {
+      border: 2px solid #111111;
+      box-sizing: border-box;
+      min-height: 90px;
+      padding: 8px 40px;
+      width: 100%;
+    }
+
+    .footer-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+    }
+
+    .footer-row {
+      margin-bottom: 2px;
+    }
+
+    .signature-line {
+      border-bottom: 1px solid #111111;
+      display: inline-block;
+      height: 16px;
+      min-width: 220px;
+      vertical-align: bottom;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div>Invoice № {{ invoice.invoice_number }}</div>
+    <div>Date: {{ invoice.issue_date }}</div>
+    {% if invoice.due_date %}
+    <div>Due date: {{ invoice.due_date }}</div>
+    {% endif %}
+  </div>
+
+  <div class="parties">
+    <div class="party">
+      <div class="label">Service provider:</div>
+      <div class="party-name">{{ invoice.business.name }}</div>
+      {% if invoice.business.email %}<div>{{ invoice.business.email }}</div>{% endif %}
+      {% if invoice.business.address %}
+      <div class="multiline">{{ invoice.business.address }}</div>
+      {% endif %}
+    </div>
+    <div class="party">
+      <div class="label">Service recipient:</div>
+      <div class="party-name">{{ invoice.client.name }}</div>
+      {% if invoice.client.email %}<div>{{ invoice.client.email }}</div>{% endif %}
+      {% if invoice.client.address %}
+      <div class="multiline">{{ invoice.client.address }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Description</th>
+        <th>Amount ({{ invoice.currency }})</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td class="index">{{ loop.index }}</td>
+        <td class="description">{{ item.description }}</td>
+        <td class="number">{{ "%.2f"|format(item.amount) }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td class="total-label" colspan="2">TOTAL (including all taxes): {{ "%.2f"|format(total) }} {{ invoice.currency }}</td>
+        <td class="total-value">{{ "%.2f"|format(total) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  {% if invoice.notes %}
+  <div class="amount-words">{{ invoice.notes }}</div>
+  {% else %}
+  <div class="amount-words">&nbsp;</div>
+  {% endif %}
+
+  <div class="footer">
+    <div class="footer-title">Service provider: {{ invoice.business.name }}</div>
+    {% if invoice.business.address %}
+    <div class="footer-row multiline">Address: {{ invoice.business.address }}</div>
+    {% endif %}
+    {% if invoice.payment_terms %}
+    <div class="footer-row multiline">{{ invoice.payment_terms }}</div>
+    {% endif %}
+    <div class="footer-row">Signature: <span class="signature-line"></span></div>
+  </div>
+</body>
+</html>
