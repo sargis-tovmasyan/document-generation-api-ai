@@ -11,7 +11,7 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 @router.post("/test", response_model=AiTestResponse)
-async def test_ai(payload: AiTestRequest) -> AiTestResponse:
+async def run_ai_test(payload: AiTestRequest) -> AiTestResponse:
     logger.info("Sending test completion request to local LLM")
 
     try:
