@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Счет {{ invoice.invoice_number }}</title>
+  <title>Invoice {{ invoice.invoice_number }}</title>
   <style>
     @page {
       size: A4 landscape;
@@ -158,16 +158,16 @@
 </head>
 <body>
   <div class="topbar">
-    <div>Счет № {{ invoice.invoice_number }}</div>
-    <div>Дата: {{ invoice.issue_date }}</div>
+    <div>Invoice № {{ invoice.invoice_number }}</div>
+    <div>Date: {{ invoice.issue_date }}</div>
     {% if invoice.due_date %}
-    <div>Срок оплаты: {{ invoice.due_date }}</div>
+    <div>Due date: {{ invoice.due_date }}</div>
     {% endif %}
   </div>
 
   <div class="parties">
     <div class="party">
-      <div class="label">Поставщик услуг:</div>
+      <div class="label">Service provider:</div>
       <div class="party-name">{{ invoice.business.name }}</div>
       {% if invoice.business.email %}<div>{{ invoice.business.email }}</div>{% endif %}
       {% if invoice.business.address %}
@@ -175,7 +175,7 @@
       {% endif %}
     </div>
     <div class="party">
-      <div class="label">Получатель услуг:</div>
+      <div class="label">Service recipient:</div>
       <div class="party-name">{{ invoice.client.name }}</div>
       {% if invoice.client.email %}<div>{{ invoice.client.email }}</div>{% endif %}
       {% if invoice.client.address %}
@@ -188,8 +188,8 @@
     <thead>
       <tr>
         <th>#</th>
-        <th>Описание</th>
-        <th>Сумма ({{ invoice.currency }})</th>
+        <th>Description</th>
+        <th>Amount ({{ invoice.currency }})</th>
       </tr>
     </thead>
     <tbody>
@@ -201,7 +201,7 @@
       </tr>
       {% endfor %}
       <tr>
-        <td class="total-label" colspan="2">ИТОГО (включая все налоги): {{ "%.2f"|format(total) }} {{ invoice.currency }}</td>
+        <td class="total-label" colspan="2">TOTAL (including all taxes): {{ "%.2f"|format(total) }} {{ invoice.currency }}</td>
         <td class="total-value">{{ "%.2f"|format(total) }}</td>
       </tr>
     </tbody>
@@ -214,9 +214,9 @@
   {% endif %}
 
   <div class="footer">
-    <div class="footer-title">Поставщик услуг: {{ invoice.business.name }}</div>
+    <div class="footer-title">Service provider: {{ invoice.business.name }}</div>
     {% if invoice.business.address %}
-    <div class="footer-row multiline">Адрес: {{ invoice.business.address }}</div>
+    <div class="footer-row multiline">Address: {{ invoice.business.address }}</div>
     {% endif %}
     {% if invoice.payment_terms %}
     <div class="footer-row multiline">{{ invoice.payment_terms }}</div>

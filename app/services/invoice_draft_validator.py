@@ -29,4 +29,6 @@ def find_missing_invoice_fields(draft: InvoiceDraft) -> list[str]:
 
 
 def invoice_draft_to_create(draft: InvoiceDraft) -> InvoiceCreate:
-    return InvoiceCreate.model_validate(draft.model_dump(exclude={"document_type"}))
+    return InvoiceCreate.model_validate(
+        draft.model_dump(exclude={"document_type"}, exclude_none=True)
+    )

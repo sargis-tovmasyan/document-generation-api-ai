@@ -86,12 +86,13 @@ class InvoiceDraftValidatorTests(unittest.TestCase):
             ],
         )
 
-    def test_converts_complete_draft_to_strict_invoice(self) -> None:
+    def test_converts_complete_draft_to_invoice(self) -> None:
         draft = InvoiceDraft.model_validate(
             {
                 "invoice_number": "INV-001",
                 "issue_date": "2026-06-15",
                 "currency": "usd",
+                "template_language": "en",
                 "business": {"name": "Sargis Studio"},
                 "client": {"name": "Alex"},
                 "items": [
@@ -107,7 +108,30 @@ class InvoiceDraftValidatorTests(unittest.TestCase):
         invoice = invoice_draft_to_create(draft)
 
         self.assertEqual(invoice.currency, "USD")
+        self.assertEqual(invoice.template_language, "en")
         self.assertEqual(invoice.client.name, "Alex")
+
+    def test_defaults_template_language_when_missing(self) -> None:
+        draft = InvoiceDraft.model_validate(
+            {
+                "invoice_number": "INV-001",
+                "issue_date": "2026-06-15",
+                "currency": "USD",
+                "business": {"name": "Sargis Studio"},
+                "client": {"name": "Alex"},
+                "items": [
+                    {
+                        "description": "Website design",
+                        "quantity": 1,
+                        "unit_price": 300,
+                    }
+                ],
+            }
+        )
+
+        invoice = invoice_draft_to_create(draft)
+
+        self.assertEqual(invoice.template_language, "ru")
 
 
 if __name__ == "__main__":

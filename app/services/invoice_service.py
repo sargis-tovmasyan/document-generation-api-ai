@@ -102,7 +102,11 @@ def create_invoice(invoice: InvoiceCreate) -> dict:
                 ],
             )
 
-            generate_invoice_pdf(template_context, pdf_path)
+            generate_invoice_pdf(
+                template_context,
+                pdf_path,
+                invoice.template_language,
+            )
     except sqlite3.IntegrityError as error:
         if pdf_path.exists():
             pdf_path.unlink()
