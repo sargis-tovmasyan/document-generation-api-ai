@@ -149,6 +149,28 @@ def list_invoices() -> list[dict]:
     ]
 
 
+def reset_invoice_store() -> dict:
+    with database_connection() as connection:
+        invoice_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM invoices"
+        ).fetchone()["count"]
+        item_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM invoice_items"
+        ).fetchone()["count"]
+
+        connection.execute("DELETE FROM invoice_items")
+        connection.execute("DELETE FROM invoices")
+        connection.execute(
+            "DELETE FROM sqlite_sequence WHERE name IN (?, ?)",
+            ("invoice_items", "invoices"),
+        )
+
+    return {
+        "deleted_invoices": invoice_count,
+        "deleted_items": item_count,
+    }
+
+
 def get_invoice_pdf_path(invoice_id: int) -> Path | None:
     with database_connection() as connection:
         row = connection.execute(

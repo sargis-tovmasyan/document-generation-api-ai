@@ -18,6 +18,7 @@ from app.services.invoice_service import (
     create_invoice,
     get_invoice_pdf_path,
     list_invoices,
+    reset_invoice_store,
 )
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -68,6 +69,11 @@ def create_invoice_endpoint(invoice: InvoiceCreate) -> dict:
 @router.get("", response_model=list[InvoiceListItem])
 def list_invoices_endpoint() -> list[dict]:
     return list_invoices()
+
+
+@router.delete("")
+def reset_invoices_endpoint() -> dict:
+    return reset_invoice_store()
 
 
 @router.get("/{invoice_id}/download", response_class=FileResponse)
