@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 
 from app.schemas import AiTestRequest, AiTestResponse
+from app.services.invoice_service import reset_invoice_store
 from app.services.llm_client import LlmServiceError, llm_client
 
 logger = logging.getLogger(__name__)
@@ -24,3 +25,8 @@ async def test_ai(payload: AiTestRequest) -> AiTestResponse:
         ) from error
 
     return AiTestResponse(answer=answer)
+
+
+@router.post("/invoice-store")
+def invoice_store_test_action() -> dict:
+    return reset_invoice_store()
