@@ -11,6 +11,8 @@ from pydantic import (
     model_validator,
 )
 
+InvoiceTemplateLanguage = Literal["ru", "en"]
+
 
 class Party(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -39,6 +41,7 @@ class InvoiceCreate(BaseModel):
     issue_date: date
     due_date: date | None = None
     currency: str = Field(min_length=3, max_length=3)
+    template_language: InvoiceTemplateLanguage = "ru"
     business: Party
     client: Party
     items: list[InvoiceItemCreate] = Field(min_length=1, max_length=100)
@@ -159,6 +162,7 @@ class InvoiceDraft(BaseModel):
     issue_date: date | None = None
     due_date: date | None = None
     currency: str | None = Field(default=None, max_length=3)
+    template_language: InvoiceTemplateLanguage | None = None
     business: InvoiceDraftParty = Field(default_factory=InvoiceDraftParty)
     client: InvoiceDraftParty = Field(default_factory=InvoiceDraftParty)
     items: list[InvoiceDraftItem] = Field(default_factory=list, max_length=100)
