@@ -8,81 +8,17 @@ from app.schemas import InvoiceDraft, InvoiceTemplateLanguage
 from app.services.llm_client import LlmClient, llm_client
 
 INVOICE_EXTRACTION_PROMPT = """Extract invoice data from the user message.
-Return only one JSON object matching these fields:
-document_type, invoice_number, issue_date, due_date, currency, template_language,
-business{name,email,address}, client{name,email,address},
-items[{description,quantity,unit_price}], notes, payment_terms, missing_fields.
-
-Rules:
-- Output compact JSON without indentation or extra whitespace.
-- Copy or directly normalize only information stated by the user.
-- Omit unknown fields. Never invent example values.
-- Dates must use ISO format YYYY-MM-DD when the user provides a date.
-- template_language must be "en" for English invoice text or "ru" for Russian invoice text.
-- Choose template_language from the user's message language or explicit words like English, Russian, на русском, or на английском.
-- "for NAME" or "to NAME" identifies the client. "from NAME" identifies the business.
-- For one service with one amount, quantity is 1 and unit_price is that amount.
-- Include exactly one item per service. Never duplicate items.
-- "dollars" or "$" means USD.
-- "rubles", "roubles", "ruble", "руб", "рублей", or "₽" means RUB.
-- missing_fields may be an empty array; the backend calculates it.
-
-User:
-__USER_MESSAGE__
+Return only JSON.
+Fields: invoice_number, issue_date, due_date, currency, business_name,
+business_email, business_address, client_name, client_email, client_address,
+item_description, item_quantity, item_unit_price, notes, payment_terms.
+Use null for unknown fields. Dates must be YYYY-MM-DD. One service with one
+amount means item_quantity is 1 and item_unit_price is that amount. Dollars
+means USD. Rubles means RUB. Copy item_description exactly from the service
+words in the message; do not use business or client words as the service.
+Message: __USER_MESSAGE__
+JSON:
 """
-
-INVOICE_EXTRACTION_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "document_type": {"type": "string", "enum": ["invoice"]},
-        "invoice_number": {"type": ["string", "null"]},
-        "issue_date": {"type": ["string", "null"]},
-        "due_date": {"type": ["string", "null"]},
-        "currency": {"type": ["string", "null"]},
-        "template_language": {"type": ["string", "null"], "enum": ["ru", "en", None]},
-        "business": {
-            "type": "object",
-            "properties": {
-                "name": {"type": ["string", "null"]},
-                "email": {"type": ["string", "null"]},
-                "address": {"type": ["string", "null"]},
-            },
-            "additionalProperties": False,
-        },
-        "client": {
-            "type": "object",
-            "properties": {
-                "name": {"type": ["string", "null"]},
-                "email": {"type": ["string", "null"]},
-                "address": {"type": ["string", "null"]},
-            },
-            "additionalProperties": False,
-        },
-        "items": {
-            "type": "array",
-            "maxItems": 5,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "description": {"type": ["string", "null"]},
-                    "quantity": {"type": ["number", "null"]},
-                    "unit_price": {"type": ["number", "null"]},
-                },
-                "additionalProperties": False,
-            },
-        },
-        "notes": {"type": ["string", "null"]},
-        "payment_terms": {"type": ["string", "null"]},
-        "missing_fields": {
-            "type": "array",
-            "maxItems": 20,
-            "items": {"type": "string"},
-        },
-    },
-    "required": ["document_type"],
-    "additionalProperties": False,
-}
-
 
 class AiInvoiceParseError(Exception):
     """Raised when the LLM output cannot be validated as an invoice draft."""
@@ -97,21 +33,14 @@ class AiInvoiceExtractor:
             "__USER_MESSAGE__",
             user_message,
         )
-        content = await self.client.complete_prompt(
-            prompt,
-            json_schema=INVOICE_EXTRACTION_JSON_SCHEMA,
-        )
+        content = await self.client.complete_prompt(prompt)
 
-        try:
-            raw_draft = json.loads(content)
-        except json.JSONDecodeError as error:
-            raise AiInvoiceParseError("LLM returned invalid invoice JSON") from error
-
+        raw_draft = _load_invoice_json(content)
         if not isinstance(raw_draft, dict):
             raise AiInvoiceParseError("LLM invoice response must be a JSON object")
 
-        raw_draft.pop("missing_fields", None)
-        grounded_draft = ground_raw_invoice_draft(raw_draft, user_message)
+        normalized_draft = normalize_flat_invoice_draft(raw_draft)
+        grounded_draft = ground_raw_invoice_draft(normalized_draft, user_message)
 
         try:
             return InvoiceDraft.model_validate(grounded_draft)
@@ -119,17 +48,52 @@ class AiInvoiceExtractor:
             raise AiInvoiceParseError("LLM returned an invalid invoice draft") from error
 
 
+def normalize_flat_invoice_draft(raw_draft: dict) -> dict:
+    return {
+        "document_type": "invoice",
+        "invoice_number": raw_draft.get("invoice_number"),
+        "issue_date": raw_draft.get("issue_date"),
+        "due_date": raw_draft.get("due_date"),
+        "currency": raw_draft.get("currency"),
+        "business": {
+            "name": raw_draft.get("business_name"),
+            "email": raw_draft.get("business_email"),
+            "address": raw_draft.get("business_address"),
+        },
+        "client": {
+            "name": raw_draft.get("client_name"),
+            "email": raw_draft.get("client_email"),
+            "address": raw_draft.get("client_address"),
+        },
+        "items": [
+            {
+                "description": raw_draft.get("item_description"),
+                "quantity": raw_draft.get("item_quantity"),
+                "unit_price": raw_draft.get("item_unit_price"),
+            }
+        ],
+        "notes": raw_draft.get("notes"),
+        "payment_terms": raw_draft.get("payment_terms"),
+    }
+
+
 def ground_raw_invoice_draft(
     raw_draft: dict,
     user_message: str,
 ) -> dict:
     message_lower = user_message.lower()
-    client_name = _extract_role_name(user_message, ("for", "to"))
-    business_name = _extract_role_name(user_message, ("from",))
     raw_business = raw_draft.get("business")
     raw_client = raw_draft.get("client")
     raw_business = raw_business if isinstance(raw_business, dict) else {}
     raw_client = raw_client if isinstance(raw_client, dict) else {}
+    client_name = _ground_raw_text(
+        raw_client.get("name"),
+        user_message,
+    ) or _extract_role_name(user_message, ("for", "to"))
+    business_name = _extract_business_name(
+        raw_business.get("name"),
+        user_message,
+    ) or _extract_role_name(user_message, ("from",))
 
     grounded_items: list[dict] = []
     seen_items: set[tuple[str | None, Decimal | None]] = set()
@@ -191,6 +155,8 @@ def ground_raw_invoice_draft(
             for marker in currency_words.get(currency, ())
         ):
             currency = None
+    if currency is None:
+        currency = _extract_currency(user_message)
 
     return {
         "document_type": raw_draft.get("document_type"),
@@ -207,19 +173,17 @@ def ground_raw_invoice_draft(
             user_message,
         ),
         "currency": currency,
-        "template_language": _select_template_language(
-            raw_draft.get("template_language"),
-            user_message,
-        ),
+        "template_language": _select_template_language(user_message),
         "business": {
             "name": business_name,
             "email": _ground_raw_text(
                 raw_business.get("email"),
                 user_message,
             ),
-            "address": _ground_raw_text(
+            "address": _extract_labeled_text(
                 raw_business.get("address"),
                 user_message,
+                r"(?:my\s+)?business\s+address",
             ),
         },
         "client": {
@@ -228,9 +192,10 @@ def ground_raw_invoice_draft(
                 raw_client.get("email"),
                 user_message,
             ),
-            "address": _ground_raw_text(
+            "address": _extract_labeled_text(
                 raw_client.get("address"),
                 user_message,
+                r"client\s+address",
             ),
         },
         "items": grounded_items,
@@ -248,16 +213,75 @@ def _ground_raw_text(value: object, user_message: str) -> str | None:
     return None
 
 
-def _select_template_language(
-    raw_value: object,
+def _extract_currency(user_message: str) -> str | None:
+    message_lower = user_message.lower()
+    if "dollar" in message_lower or "$" in user_message:
+        return "USD"
+    if "euro" in message_lower or "€" in user_message:
+        return "EUR"
+    if "pound" in message_lower or "£" in user_message:
+        return "GBP"
+    if "dram" in message_lower or "֏" in user_message:
+        return "AMD"
+    if any(
+        marker in message_lower
+        for marker in ("ruble", "rouble", "rubles", "roubles", "руб", "рублей")
+    ) or "₽" in user_message:
+        return "RUB"
+    return None
+
+
+def _load_invoice_json(content: str) -> dict:
+    try:
+        raw_draft = json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start < 0 or end <= start:
+            raise AiInvoiceParseError("LLM returned invalid invoice JSON")
+        try:
+            raw_draft = json.loads(content[start : end + 1])
+        except json.JSONDecodeError as error:
+            raise AiInvoiceParseError("LLM returned invalid invoice JSON") from error
+
+    if not isinstance(raw_draft, dict):
+        raise AiInvoiceParseError("LLM invoice response must be a JSON object")
+    return raw_draft
+
+
+def _extract_labeled_text(
+    value: object,
     user_message: str,
-) -> InvoiceTemplateLanguage:
+    label_pattern: str,
+) -> str | None:
+    grounded_value = _ground_raw_text(value, user_message)
+    if grounded_value is None:
+        return None
+
+    pattern = rf"\b{label_pattern}\s+(?:is\s+)?{re.escape(grounded_value)}(?=[.;]|$)"
+    if re.search(pattern, user_message, flags=re.IGNORECASE):
+        return grounded_value
+    return None
+
+
+def _extract_business_name(value: object, user_message: str) -> str | None:
+    grounded_value = _ground_raw_text(value, user_message)
+    if grounded_value is None:
+        return None
+
+    pattern = (
+        r"\b(?:my\s+)?business\s+name\s+(?:is\s+)?"
+        rf"{re.escape(grounded_value)}(?=[,.;]|$)"
+    )
+    if re.search(pattern, user_message, flags=re.IGNORECASE):
+        return grounded_value
+    return None
+
+
+def _select_template_language(user_message: str) -> InvoiceTemplateLanguage:
     explicit_language = _detect_explicit_template_language(user_message)
     if explicit_language is not None:
         return explicit_language
-
-    if isinstance(raw_value, str) and raw_value.strip().lower() in {"ru", "en"}:
-        return raw_value.strip().lower()  # type: ignore[return-value]
 
     if re.search(r"[а-яё]", user_message.lower()):
         return "ru"
