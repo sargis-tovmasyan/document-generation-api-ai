@@ -1,62 +1,65 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
-  <title>Invoice {{ invoice.invoice_number }}</title>
+  <title>Счет {{ invoice.invoice_number }}</title>
   <style>
     @page {
-      size: A4;
-      margin: 24mm 18mm;
+      size: A4 landscape;
+      margin: 12mm 14mm;
     }
 
     body {
-      color: #1f2937;
+      color: #111111;
       font-family: Arial, sans-serif;
       font-size: 12px;
-      line-height: 1.5;
+      font-weight: 600;
+      line-height: 1.25;
       margin: 0;
     }
 
-    .header {
-      align-items: flex-start;
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 36px;
-    }
-
-    h1 {
-      color: #111827;
-      font-size: 32px;
-      letter-spacing: 2px;
-      margin: 0;
-    }
-
-    .invoice-meta {
+    .topbar {
+      color: #1f5f9f;
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 48px;
       text-align: right;
     }
 
+    .topbar div + div {
+      color: #111111;
+      margin-top: 4px;
+    }
+
     .parties {
+      border: 3px solid #111111;
       display: flex;
-      gap: 40px;
-      margin-bottom: 32px;
+      margin-bottom: 14px;
+      min-height: 92px;
     }
 
     .party {
+      box-sizing: border-box;
       flex: 1;
+      padding: 6px 8px 10px;
+    }
+
+    .party + .party {
+      border-left: 3px solid #111111;
     }
 
     .label {
-      color: #6b7280;
-      font-size: 10px;
-      font-weight: bold;
-      letter-spacing: 1px;
-      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      margin-bottom: 5px;
       text-transform: uppercase;
     }
 
     .party-name {
-      font-size: 15px;
-      font-weight: bold;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 3px;
     }
 
     .multiline {
@@ -65,76 +68,106 @@
 
     table {
       border-collapse: collapse;
-      margin-bottom: 24px;
       width: 100%;
     }
 
-    th {
-      background: #f3f4f6;
-      color: #374151;
-      font-size: 10px;
-      letter-spacing: 0.5px;
-      padding: 10px 8px;
-      text-align: left;
-      text-transform: uppercase;
+    .items {
+      margin-bottom: 12px;
     }
 
-    td {
-      border-bottom: 1px solid #e5e7eb;
-      padding: 12px 8px;
+    .items th {
+      background: #dbe7f3;
+      border: 2px solid #111111;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 8px;
+      text-align: center;
+    }
+
+    .items td {
+      border: 2px solid #111111;
+      font-size: 12px;
+      padding: 4px 8px;
       vertical-align: top;
+    }
+
+    .index {
+      text-align: center;
+      width: 34px;
+    }
+
+    .description {
+      font-weight: 700;
     }
 
     .number {
       text-align: right;
       white-space: nowrap;
+      width: 140px;
     }
 
-    .totals {
-      margin-left: auto;
-      width: 260px;
+    .total-label {
+      background: #dbe7f3;
+      font-weight: 700;
+      text-align: left;
     }
 
-    .totals td {
-      border: 0;
-      padding: 5px 8px;
+    .total-value {
+      background: #dbe7f3;
+      font-size: 14px;
+      font-weight: 700;
+      text-align: right;
+      white-space: nowrap;
     }
 
-    .total-row {
-      border-top: 2px solid #111827;
-      font-size: 16px;
-      font-weight: bold;
+    .amount-words {
+      font-size: 13px;
+      font-style: italic;
+      font-weight: 700;
+      margin: 4px 0 34px;
+      text-align: right;
     }
 
-    .details {
-      border-top: 1px solid #e5e7eb;
-      margin-top: 36px;
-      padding-top: 20px;
+    .footer {
+      border: 2px solid #111111;
+      box-sizing: border-box;
+      min-height: 90px;
+      padding: 8px 40px;
+      width: 100%;
     }
 
-    .detail-block {
-      margin-bottom: 16px;
+    .footer-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+    }
+
+    .footer-row {
+      margin-bottom: 2px;
+    }
+
+    .signature-line {
+      border-bottom: 1px solid #111111;
+      display: inline-block;
+      height: 16px;
+      min-width: 220px;
+      vertical-align: bottom;
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div>
-      <h1>INVOICE</h1>
-      <div>{{ invoice.invoice_number }}</div>
-    </div>
-    <div class="invoice-meta">
-      <div><strong>Issue date:</strong> {{ invoice.issue_date }}</div>
-      {% if invoice.due_date %}
-      <div><strong>Due date:</strong> {{ invoice.due_date }}</div>
-      {% endif %}
-      <div><strong>Currency:</strong> {{ invoice.currency }}</div>
-    </div>
+  <div class="topbar">
+    <div>Счет № {{ invoice.invoice_number }}</div>
+    <div>Дата: {{ invoice.issue_date }}</div>
+    {% if invoice.due_date %}
+    <div>Срок оплаты: {{ invoice.due_date }}</div>
+    {% endif %}
   </div>
 
   <div class="parties">
     <div class="party">
-      <div class="label">From</div>
+      <div class="label">Поставщик услуг:</div>
       <div class="party-name">{{ invoice.business.name }}</div>
       {% if invoice.business.email %}<div>{{ invoice.business.email }}</div>{% endif %}
       {% if invoice.business.address %}
@@ -142,7 +175,7 @@
       {% endif %}
     </div>
     <div class="party">
-      <div class="label">Bill to</div>
+      <div class="label">Получатель услуг:</div>
       <div class="party-name">{{ invoice.client.name }}</div>
       {% if invoice.client.email %}<div>{{ invoice.client.email }}</div>{% endif %}
       {% if invoice.client.address %}
@@ -151,53 +184,44 @@
     </div>
   </div>
 
-  <table>
+  <table class="items">
     <thead>
       <tr>
-        <th>Description</th>
-        <th class="number">Quantity</th>
-        <th class="number">Unit price</th>
-        <th class="number">Amount</th>
+        <th>#</th>
+        <th>Описание</th>
+        <th>Сумма ({{ invoice.currency }})</th>
       </tr>
     </thead>
     <tbody>
       {% for item in items %}
       <tr>
-        <td>{{ item.description }}</td>
-        <td class="number">{{ item.quantity }}</td>
-        <td class="number">{{ "%.2f"|format(item.unit_price) }}</td>
+        <td class="index">{{ loop.index }}</td>
+        <td class="description">{{ item.description }}</td>
         <td class="number">{{ "%.2f"|format(item.amount) }}</td>
       </tr>
       {% endfor %}
+      <tr>
+        <td class="total-label" colspan="2">ИТОГО (включая все налоги): {{ "%.2f"|format(total) }} {{ invoice.currency }}</td>
+        <td class="total-value">{{ "%.2f"|format(total) }}</td>
+      </tr>
     </tbody>
   </table>
 
-  <table class="totals">
-    <tr>
-      <td>Subtotal</td>
-      <td class="number">{{ invoice.currency }} {{ "%.2f"|format(subtotal) }}</td>
-    </tr>
-    <tr class="total-row">
-      <td>Total</td>
-      <td class="number">{{ invoice.currency }} {{ "%.2f"|format(total) }}</td>
-    </tr>
-  </table>
+  {% if invoice.notes %}
+  <div class="amount-words">{{ invoice.notes }}</div>
+  {% else %}
+  <div class="amount-words">&nbsp;</div>
+  {% endif %}
 
-  {% if invoice.notes or invoice.payment_terms %}
-  <div class="details">
-    {% if invoice.notes %}
-    <div class="detail-block">
-      <div class="label">Notes</div>
-      <div class="multiline">{{ invoice.notes }}</div>
-    </div>
+  <div class="footer">
+    <div class="footer-title">Поставщик услуг: {{ invoice.business.name }}</div>
+    {% if invoice.business.address %}
+    <div class="footer-row multiline">Адрес: {{ invoice.business.address }}</div>
     {% endif %}
     {% if invoice.payment_terms %}
-    <div class="detail-block">
-      <div class="label">Payment terms</div>
-      <div class="multiline">{{ invoice.payment_terms }}</div>
-    </div>
+    <div class="footer-row multiline">{{ invoice.payment_terms }}</div>
     {% endif %}
+    <div class="footer-row">Signature: <span class="signature-line"></span></div>
   </div>
-  {% endif %}
 </body>
 </html>
