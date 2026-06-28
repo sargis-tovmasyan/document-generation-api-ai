@@ -17,10 +17,12 @@ Rules:
 - Output compact JSON without indentation or extra whitespace.
 - Copy or directly normalize only information stated by the user.
 - Omit unknown fields. Never invent example values.
-- "for NAME" identifies the client. "from NAME" identifies the business.
+- Dates must use ISO format YYYY-MM-DD when the user provides a date.
+- "for NAME" or "to NAME" identifies the client. "from NAME" identifies the business.
 - For one service with one amount, quantity is 1 and unit_price is that amount.
 - Include exactly one item per service. Never duplicate items.
 - "dollars" or "$" means USD.
+- "rubles", "roubles", "ruble", "руб", "рублей", or "₽" means RUB.
 - missing_fields may be an empty array; the backend calculates it.
 
 User:
@@ -179,6 +181,7 @@ def ground_raw_invoice_draft(
             "EUR": ("euro", "€"),
             "GBP": ("pound", "£"),
             "AMD": ("dram", "֏"),
+            "RUB": ("ruble", "rouble", "rubles", "roubles", "руб", "рублей", "₽"),
         }
         if not any(
             marker in message_lower
@@ -284,8 +287,8 @@ def _description_is_grounded(
     if not description:
         return False
 
-    message_words = re.findall(r"[a-z0-9]+", user_message.lower())
-    description_words = re.findall(r"[a-z0-9]+", description.lower())
+    message_words = re.findall(r"[a-zа-яё0-9]+", user_message.lower())
+    description_words = re.findall(r"[a-zа-яё0-9]+", description.lower())
     if not description_words:
         return False
 
