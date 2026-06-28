@@ -50,6 +50,37 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
             client.complete_prompt.await_args.kwargs,
         )
 
+    async def test_accepts_rub_currency(self) -> None:
+        client = AsyncMock()
+        client.complete_prompt.return_value = """
+        {
+          "document_type": "invoice",
+          "invoice_number": null,
+          "issue_date": null,
+          "due_date": null,
+          "currency": "RUB",
+          "business": {"name": null, "email": null, "address": null},
+          "client": {"name": "Alex", "email": null, "address": null},
+          "items": [
+            {
+              "description": "Software development",
+              "quantity": 1,
+              "unit_price": 20000
+            }
+          ],
+          "notes": null,
+          "payment_terms": null,
+          "missing_fields": []
+        }
+        """
+
+        draft = await AiInvoiceExtractor(client).extract(
+            "Create an invoice for Alex for Software development, 20000 rubles."
+        )
+
+        self.assertEqual(draft.currency, "RUB")
+        self.assertEqual(draft.items[0].unit_price, 20000)
+
     async def test_clears_hallucinations_and_deduplicates_items(self) -> None:
         client = AsyncMock()
         client.complete_prompt.return_value = """
