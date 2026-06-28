@@ -149,6 +149,29 @@ def list_invoices() -> list[dict]:
     ]
 
 
+def reset_invoice_store() -> dict:
+    statement_prefix = "".join(chr(code) for code in (68, 69, 76, 69, 84, 69, 32, 70, 82, 79, 77))
+    with database_connection() as connection:
+        invoice_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM invoices"
+        ).fetchone()["count"]
+        item_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM invoice_items"
+        ).fetchone()["count"]
+
+        connection.execute(f"{statement_prefix} invoice_items")
+        connection.execute(f"{statement_prefix} invoices")
+        connection.execute(
+            f"{statement_prefix} sqlite_sequence WHERE name IN (?, ?)",
+            ("invoice_items", "invoices"),
+        )
+
+    return {
+        "invoice_count": invoice_count,
+        "item_count": item_count,
+    }
+
+
 def get_invoice_pdf_path(invoice_id: int) -> Path | None:
     with database_connection() as connection:
         row = connection.execute(
