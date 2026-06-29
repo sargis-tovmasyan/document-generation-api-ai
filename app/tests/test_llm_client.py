@@ -104,11 +104,11 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
             await LlmClient().complete_prompt(
                 "Choose an action.",
                 max_tokens=8,
-                stop=["\n", "User:"],
+                stop=["User:"],
             )
 
         self.assertEqual(FakeAsyncClient.last_payload["n_predict"], 8)
-        self.assertEqual(FakeAsyncClient.last_payload["stop"], ["\n", "User:"])
+        self.assertEqual(FakeAsyncClient.last_payload["stop"], ["User:"])
 
     async def test_rejects_invalid_json(self) -> None:
         FakeAsyncClient.response = FakeResponse(invalid_json=True)
