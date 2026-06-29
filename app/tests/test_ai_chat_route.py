@@ -146,6 +146,35 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("invoice_number", response.missing_fields)
         create_invoice_mock.assert_not_called()
 
+    async def test_returns_all_missing_fields_when_invoice_parse_fails(self) -> None:
+        parse_error = JSONResponse(
+            status_code=422,
+            content={
+                "status": "ai_parse_error",
+                "message": "Could not extract invoice details.",
+            },
+        )
+
+        with (
+            patch(
+                "app.routes.ai_chat._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="create_invoice")),
+            ),
+            patch(
+                "app.routes.ai_chat._extract_draft_or_error",
+                AsyncMock(return_value=parse_error),
+            ),
+            patch("app.routes.ai_chat.create_invoice") as create_invoice_mock,
+        ):
+            response = await chat(AiChatRequest(message="create a new invoice"))
+
+        self.assertEqual(response.status, "missing_fields")
+        self.assertIn("invoice_number", response.missing_fields)
+        self.assertIn("business.name", response.missing_fields)
+        self.assertIn("client.name", response.missing_fields)
+        self.assertIn("items", response.missing_fields)
+        create_invoice_mock.assert_not_called()
+
     async def test_maps_llm_unavailable_to_503(self) -> None:
         with patch(
             "app.routes.ai_chat._decide_chat_action",

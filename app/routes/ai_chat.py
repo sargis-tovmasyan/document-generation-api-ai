@@ -12,6 +12,7 @@ from app.schemas import (
     AiChatInvoiceListResponse,
     AiChatMissingFieldsResponse,
     AiChatRequest,
+    InvoiceDraft,
     InvoiceDraftCreatedResponse,
 )
 from app.services.invoice_draft_validator import (
@@ -118,6 +119,16 @@ def _invoice_list_message(invoice_count: int) -> str:
     return f"I found {invoice_count} invoices."
 
 
+async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONResponse:
+    draft = await _extract_draft_or_error(message)
+    if (
+        isinstance(draft, JSONResponse)
+        and draft.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    ):
+        return InvoiceDraft()
+    return draft
+
+
 @router.post(
     "",
     response_model=(
@@ -180,7 +191,7 @@ async def chat(
             invoices=invoices,
         )
 
-    draft = await _extract_draft_or_error(payload.message)
+    draft = await _extract_invoice_draft_for_chat(payload.message)
     if isinstance(draft, JSONResponse):
         return draft
 
