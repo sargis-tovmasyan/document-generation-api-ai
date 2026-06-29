@@ -56,7 +56,7 @@ CHAT_PARSE_ERROR_MESSAGE = (
 
 class ChatDecision(BaseModel):
     action: Literal["answer", "list_invoices", "create_invoice"]
-    message: str
+    message: str = ""
 
 
 def _load_chat_decision(content: str) -> ChatDecision:
