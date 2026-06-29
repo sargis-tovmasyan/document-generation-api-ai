@@ -27,21 +27,24 @@ from app.services.llm_client import LlmServiceError, llm_client
 
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
-CHAT_DECISION_PROMPT = """Classify the user request.
-Actions: answer, list_invoices, create_invoice.
-
-User: hi
-Action: answer
-
-User: show me all my invoices
-Action: list_invoices
-
-User: create invoice for Alex for design 300 dollars
-Action: create_invoice
-
-User: __USER_MESSAGE__
-Action:
-"""
+CHAT_DECISION_PROMPT = (
+    "Classify the user request as one action. "
+    "Use answer for greetings and professional questions. "
+    "Use list_invoices when the user asks to show, list, find, or summarize invoices. "
+    "Use create_invoice only when the user clearly wants to create an invoice. "
+    "User: __USER_MESSAGE__ JSON:"
+)
+CHAT_DECISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {
+            "type": "string",
+            "enum": ["answer", "list_invoices", "create_invoice"],
+        }
+    },
+    "required": ["action"],
+    "additionalProperties": False,
+}
 
 CHAT_LLM_UNAVAILABLE_MESSAGE = (
     "AI assistant is temporarily unavailable. Please try again later."
@@ -77,8 +80,8 @@ async def _decide_chat_action(message: str) -> ChatDecision:
     prompt = CHAT_DECISION_PROMPT.replace("__USER_MESSAGE__", message)
     content = await llm_client.complete_prompt(
         prompt,
-        max_tokens=8,
-        stop=["User:"],
+        json_schema=CHAT_DECISION_SCHEMA,
+        max_tokens=32,
     )
     return _load_chat_decision(content)
 
