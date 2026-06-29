@@ -215,6 +215,32 @@ class AiInvoiceErrorResponse(BaseModel):
     message: str
 
 
+class AiChatRequest(AiTestRequest):
+    pass
+
+
+class AiChatAnswerResponse(BaseModel):
+    status: Literal["answer"]
+    message: str
+
+
+class AiChatInvoiceListResponse(BaseModel):
+    status: Literal["invoice_list"]
+    message: str
+    invoices: list[InvoiceListItem]
+
+
+class AiChatMissingFieldsResponse(BaseModel):
+    status: Literal["missing_fields"]
+    missing_fields: list[str]
+    draft: InvoiceDraft
+
+
+class AiChatErrorResponse(BaseModel):
+    status: Literal["llm_unavailable", "ai_parse_error"]
+    message: str
+
+
 class InvoiceDraftCompleteRequest(BaseModel):
     draft: InvoiceDraft
 

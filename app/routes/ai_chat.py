@@ -1,0 +1,166 @@
+import json
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ValidationError
+
+from app.routes.ai_invoice import _extract_draft_or_error
+from app.schemas import (
+    AiChatAnswerResponse,
+    AiChatErrorResponse,
+    AiChatInvoiceListResponse,
+    AiChatMissingFieldsResponse,
+    AiChatRequest,
+    InvoiceDraftCreatedResponse,
+)
+from app.services.invoice_draft_validator import (
+    find_missing_invoice_fields,
+    invoice_draft_to_create,
+)
+from app.services.invoice_service import (
+    InvoiceNumberConflictError,
+    create_invoice,
+    list_invoices,
+)
+from app.services.llm_client import LlmServiceError, llm_client
+
+router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
+
+CHAT_DECISION_PROMPT = """You are a warm, friendly, professional document assistant.
+Decide what the backend should do with the user message.
+Return only JSON with this shape:
+{"action":"answer"|"list_invoices"|"create_invoice","message":"short assistant reply"}
+
+Rules:
+- Use "answer" for greetings, professional questions, and anything that does not need an endpoint call.
+- Use "list_invoices" when the user asks to show, list, find, or summarize invoices.
+- Use "create_invoice" only when the user clearly wants to create or generate an invoice.
+- The message must match the selected action and be concise.
+
+User message: __USER_MESSAGE__
+JSON:
+"""
+
+CHAT_LLM_UNAVAILABLE_MESSAGE = (
+    "AI assistant is temporarily unavailable. Please try again later."
+)
+CHAT_PARSE_ERROR_MESSAGE = (
+    "I could not decide how to handle that request. Please try rephrasing it."
+)
+
+
+class ChatDecision(BaseModel):
+    action: Literal["answer", "list_invoices", "create_invoice"]
+    message: str
+
+
+def _load_chat_decision(content: str) -> ChatDecision:
+    try:
+        raw_decision = json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("LLM returned invalid chat decision JSON")
+        raw_decision = json.loads(content[start : end + 1])
+
+    return ChatDecision.model_validate(raw_decision)
+
+
+async def _decide_chat_action(message: str) -> ChatDecision:
+    prompt = CHAT_DECISION_PROMPT.replace("__USER_MESSAGE__", message)
+    content = await llm_client.complete_prompt(prompt)
+    return _load_chat_decision(content)
+
+
+def _invoice_list_message(invoice_count: int) -> str:
+    if invoice_count == 0:
+        return "You do not have any invoices yet."
+    if invoice_count == 1:
+        return "I found 1 invoice."
+    return f"I found {invoice_count} invoices."
+
+
+@router.post(
+    "",
+    response_model=(
+        AiChatAnswerResponse
+        | AiChatInvoiceListResponse
+        | AiChatMissingFieldsResponse
+        | InvoiceDraftCreatedResponse
+    ),
+    responses={
+        422: {"model": AiChatErrorResponse},
+        503: {"model": AiChatErrorResponse},
+    },
+)
+async def chat(
+    payload: AiChatRequest,
+) -> (
+    AiChatAnswerResponse
+    | AiChatInvoiceListResponse
+    | AiChatMissingFieldsResponse
+    | InvoiceDraftCreatedResponse
+    | JSONResponse
+):
+    try:
+        decision = await _decide_chat_action(payload.message)
+    except LlmServiceError:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "llm_unavailable",
+                "message": CHAT_LLM_UNAVAILABLE_MESSAGE,
+            },
+        )
+    except (ValueError, ValidationError, json.JSONDecodeError):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "ai_parse_error",
+                "message": CHAT_PARSE_ERROR_MESSAGE,
+            },
+        )
+
+    if decision.action == "answer":
+        return AiChatAnswerResponse(status="answer", message=decision.message)
+
+    if decision.action == "list_invoices":
+        invoices = list_invoices()
+        return AiChatInvoiceListResponse(
+            status="invoice_list",
+            message=_invoice_list_message(len(invoices)),
+            invoices=invoices,
+        )
+
+    draft = await _extract_draft_or_error(payload.message)
+    if isinstance(draft, JSONResponse):
+        return draft
+
+    missing_fields = find_missing_invoice_fields(draft)
+    if missing_fields:
+        return AiChatMissingFieldsResponse(
+            status="missing_fields",
+            missing_fields=missing_fields,
+            draft=draft,
+        )
+
+    invoice = invoice_draft_to_create(draft)
+    try:
+        created_invoice = create_invoice(invoice)
+    except InvoiceNumberConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
+
+    return InvoiceDraftCreatedResponse(
+        status="created",
+        invoice_id=created_invoice["id"],
+        invoice_number=created_invoice["invoice_number"],
+        subtotal=created_invoice["subtotal"],
+        total=created_invoice["total"],
+        currency=created_invoice["currency"],
+        pdf_url=f"/invoices/{created_invoice['id']}/download",
+    )

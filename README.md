@@ -13,6 +13,7 @@ Lightweight FastAPI MVP for generating invoice PDFs and calling a local
 - List and download generated invoices.
 - Send a test prompt to `llama-server`.
 - Extract a structured invoice draft from a chat message.
+- Route general chat messages to a simple answer, invoice listing, or invoice creation.
 - Report backend-calculated missing invoice fields.
 - Complete a validated draft and generate its PDF.
 - Limit LLM processing to one request at a time.
@@ -240,6 +241,18 @@ Response shape:
 ```
 
 If llama-server is unreachable, the endpoint returns HTTP `502`.
+
+### General Chat
+
+General chat should use:
+
+```http
+POST /ai/chat
+```
+
+The backend asks the LLM to choose between a direct answer, invoice listing, or
+invoice creation. Responses include `status: "answer"`, `"invoice_list"`,
+`"missing_fields"`, or `"created"`.
 
 ### Extract Invoice Draft From Chat
 
