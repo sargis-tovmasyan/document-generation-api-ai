@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
@@ -69,9 +70,23 @@ def _load_chat_decision(content: str) -> ChatDecision:
 
 
 async def _decide_chat_action(message: str) -> ChatDecision:
+    direct_decision = _decide_direct_action(message)
+    if direct_decision is not None:
+        return direct_decision
+
     prompt = CHAT_DECISION_PROMPT.replace("__USER_MESSAGE__", message)
     content = await llm_client.complete_prompt(prompt)
     return _load_chat_decision(content)
+
+
+def _decide_direct_action(message: str) -> ChatDecision | None:
+    normalized = message.lower()
+    if re.search(r"\b(show|list|display|get|find)\b.*\binvoices?\b", normalized):
+        return ChatDecision(
+            action="list_invoices",
+            message="I will fetch your invoices.",
+        )
+    return None
 
 
 def _invoice_list_message(invoice_count: int) -> str:
