@@ -125,6 +125,51 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(draft.notes, "Thank you for your business")
         self.assertEqual(draft.payment_terms, "Payment due within 7 days")
 
+    async def test_extracts_multiple_invoice_items(self) -> None:
+        client = AsyncMock()
+        client.complete_prompt.return_value = """
+        {
+          "invoice_number": "INV-003",
+          "issue_date": "2026-06-28",
+          "due_date": "2026-07-12",
+          "currency": "USD",
+          "business_name": "Sargis Studio",
+          "client_name": "John Smith",
+          "items": [
+            {
+              "description": "Product A",
+              "quantity": 3,
+              "unit_price": 99
+            },
+            {
+              "description": "Product B",
+              "quantity": 2,
+              "unit_price": 45
+            }
+          ]
+        }
+        """
+
+        draft = await AiInvoiceExtractor(client).extract(
+            "Invoice INV-003 from Sargis Studio for John Smith, issued "
+            "2026-06-28, due 2026-07-12, USD - 3 x Product A at $99 each, "
+            "2 x Product B at $45 each"
+        )
+
+        self.assertEqual(draft.invoice_number, "INV-003")
+        self.assertEqual(str(draft.issue_date), "2026-06-28")
+        self.assertEqual(str(draft.due_date), "2026-07-12")
+        self.assertEqual(draft.currency, "USD")
+        self.assertEqual(draft.business.name, "Sargis Studio")
+        self.assertEqual(draft.client.name, "John Smith")
+        self.assertEqual(len(draft.items), 2)
+        self.assertEqual(draft.items[0].description, "Product A")
+        self.assertEqual(draft.items[0].quantity, 3)
+        self.assertEqual(draft.items[0].unit_price, 99)
+        self.assertEqual(draft.items[1].description, "Product B")
+        self.assertEqual(draft.items[1].quantity, 2)
+        self.assertEqual(draft.items[1].unit_price, 45)
+
     async def test_accepts_rub_currency(self) -> None:
         client = AsyncMock()
         client.complete_prompt.return_value = """

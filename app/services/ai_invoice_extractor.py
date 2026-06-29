@@ -11,11 +11,12 @@ INVOICE_EXTRACTION_PROMPT = """Extract invoice data from the user message.
 Return only JSON.
 Fields: invoice_number, issue_date, due_date, currency, business_name,
 business_email, business_address, client_name, client_email, client_address,
-item_description, item_quantity, item_unit_price, notes, payment_terms.
+items, notes, payment_terms.
 Use null for unknown fields. Dates must be YYYY-MM-DD. One service with one
-amount means item_quantity is 1 and item_unit_price is that amount. Dollars
-means USD. Rubles means RUB. Copy item_description exactly from the service
-words in the message; do not use business or client words as the service.
+amount means quantity is 1 and unit_price is that amount. Return one item per
+service in items, each with description, quantity, and unit_price. Dollars
+means USD. Rubles means RUB. Copy each item description exactly from the
+service words in the message; do not use business or client words as services.
 Message: __USER_MESSAGE__
 JSON:
 """
@@ -49,6 +50,26 @@ class AiInvoiceExtractor:
 
 
 def normalize_flat_invoice_draft(raw_draft: dict) -> dict:
+    raw_items = raw_draft.get("items")
+    if isinstance(raw_items, list):
+        items = [
+            {
+                "description": raw_item.get("description"),
+                "quantity": raw_item.get("quantity"),
+                "unit_price": raw_item.get("unit_price"),
+            }
+            for raw_item in raw_items
+            if isinstance(raw_item, dict)
+        ]
+    else:
+        items = [
+            {
+                "description": raw_draft.get("item_description"),
+                "quantity": raw_draft.get("item_quantity"),
+                "unit_price": raw_draft.get("item_unit_price"),
+            }
+        ]
+
     return {
         "document_type": "invoice",
         "invoice_number": raw_draft.get("invoice_number"),
@@ -65,13 +86,7 @@ def normalize_flat_invoice_draft(raw_draft: dict) -> dict:
             "email": raw_draft.get("client_email"),
             "address": raw_draft.get("client_address"),
         },
-        "items": [
-            {
-                "description": raw_draft.get("item_description"),
-                "quantity": raw_draft.get("item_quantity"),
-                "unit_price": raw_draft.get("item_unit_price"),
-            }
-        ],
+        "items": items,
         "notes": raw_draft.get("notes"),
         "payment_terms": raw_draft.get("payment_terms"),
     }

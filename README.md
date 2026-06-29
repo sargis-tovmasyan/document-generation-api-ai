@@ -59,7 +59,8 @@ app/
     pdf_service.py
   tests/
 templates/
-  invoice.html
+  invoice_ru.html
+  invoice_en.html
 data/
 generated/invoices/
 Dockerfile
@@ -393,7 +394,7 @@ The `pdf_url` returned during creation can also be opened directly.
 
 - SQLite database: `data/app.db`
 - Generated PDFs: `generated/invoices/`
-- Trusted template: `templates/invoice.html`
+- Trusted templates: `templates/invoice_ru.html`, `templates/invoice_en.html`
 
 The `data/` and `generated/` directories are mounted into the container, so
 their contents survive image rebuilds.

@@ -12,7 +12,7 @@ template_environment = Environment(
 )
 
 INVOICE_TEMPLATE_FILES: dict[InvoiceTemplateLanguage, str] = {
-    "ru": "invoice.html",
+    "ru": "invoice_ru.html",
     "en": "invoice_en.html",
 }
 
