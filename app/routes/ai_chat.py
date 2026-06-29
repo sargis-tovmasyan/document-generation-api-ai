@@ -32,6 +32,12 @@ CHAT_DECISION_PROMPT = (
     "Use answer for greetings and professional questions. "
     "Use list_invoices when the user asks to show, list, find, or summarize invoices. "
     "Use create_invoice only when the user clearly wants to create an invoice. "
+    "Examples: "
+    "User: Hi JSON: {\"action\":\"answer\"}. "
+    "User: Hello JSON: {\"action\":\"answer\"}. "
+    "User: What payment terms should I use? JSON: {\"action\":\"answer\"}. "
+    "User: Show me all my invoices JSON: {\"action\":\"list_invoices\"}. "
+    "User: Create an invoice for Alex for design 300 dollars JSON: {\"action\":\"create_invoice\"}. "
     "User: __USER_MESSAGE__ JSON:"
 )
 CHAT_DECISION_SCHEMA = {
