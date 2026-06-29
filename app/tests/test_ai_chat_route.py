@@ -18,9 +18,12 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(
                 return_value=ChatDecision(
                     action="answer",
-                    message="Hi, how can I help with your documents today?",
+                    message="",
                 )
             ),
+        ), patch(
+            "app.routes.ai_chat._answer_chat_message",
+            AsyncMock(return_value="Hi, how can I help with your documents today?"),
         ):
             response = await chat(AiChatRequest(message="hi"))
 
@@ -62,16 +65,19 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(response.invoices), 1)
         self.assertEqual(response.invoices[0].invoice_number, "INV-002")
 
-    async def test_lists_invoices_without_llm_for_obvious_request(self) -> None:
+    async def test_lists_invoices_when_llm_outputs_action_token(self) -> None:
         with (
-            patch("app.routes.ai_chat.llm_client.complete_prompt") as complete_mock,
+            patch(
+                "app.routes.ai_chat.llm_client.complete_prompt",
+                AsyncMock(return_value="list_invoices"),
+            ) as complete_mock,
             patch("app.routes.ai_chat.list_invoices", return_value=[]),
         ):
             response = await chat(AiChatRequest(message="Show me all my invoices"))
 
         self.assertEqual(response.status, "invoice_list")
         self.assertEqual(response.invoices, [])
-        complete_mock.assert_not_called()
+        complete_mock.assert_called_once()
 
     async def test_creates_invoice_when_llm_selects_create_invoice(self) -> None:
         draft = InvoiceDraft.model_validate(

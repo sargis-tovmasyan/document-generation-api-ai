@@ -1,5 +1,4 @@
 import json
-import re
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
@@ -30,17 +29,18 @@ router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
 CHAT_DECISION_PROMPT = """You are a warm, friendly, professional document assistant.
 Decide what the backend should do with the user message.
-Return only JSON with this shape:
-{"action":"answer"|"list_invoices"|"create_invoice","message":"short assistant reply"}
+Return exactly one action and nothing else:
+answer
+list_invoices
+create_invoice
 
 Rules:
 - Use "answer" for greetings, professional questions, and anything that does not need an endpoint call.
 - Use "list_invoices" when the user asks to show, list, find, or summarize invoices.
 - Use "create_invoice" only when the user clearly wants to create or generate an invoice.
-- The message must match the selected action and be concise.
 
 User message: __USER_MESSAGE__
-JSON:
+Action:
 """
 
 CHAT_LLM_UNAVAILABLE_MESSAGE = (
@@ -57,36 +57,44 @@ class ChatDecision(BaseModel):
 
 
 def _load_chat_decision(content: str) -> ChatDecision:
+    normalized = content.strip().lower()
+    if normalized in {"answer", "list_invoices", "create_invoice"}:
+        return ChatDecision(action=normalized, message="")
+
     try:
         raw_decision = json.loads(content)
     except json.JSONDecodeError:
         start = content.find("{")
         end = content.rfind("}")
         if start < 0 or end <= start:
-            raise ValueError("LLM returned invalid chat decision JSON")
+            return _load_chat_decision_from_text(content)
         raw_decision = json.loads(content[start : end + 1])
 
     return ChatDecision.model_validate(raw_decision)
 
 
 async def _decide_chat_action(message: str) -> ChatDecision:
-    direct_decision = _decide_direct_action(message)
-    if direct_decision is not None:
-        return direct_decision
-
     prompt = CHAT_DECISION_PROMPT.replace("__USER_MESSAGE__", message)
     content = await llm_client.complete_prompt(prompt)
     return _load_chat_decision(content)
 
 
-def _decide_direct_action(message: str) -> ChatDecision | None:
-    normalized = message.lower()
-    if re.search(r"\b(show|list|display|get|find)\b.*\binvoices?\b", normalized):
-        return ChatDecision(
-            action="list_invoices",
-            message="I will fetch your invoices.",
-        )
-    return None
+def _load_chat_decision_from_text(content: str) -> ChatDecision:
+    normalized = content.lower()
+    for action in ("create_invoice", "list_invoices", "answer"):
+        if action in normalized:
+            return ChatDecision(action=action, message="")
+    raise ValueError("LLM returned an unknown chat action")
+
+
+async def _answer_chat_message(message: str) -> str:
+    prompt = (
+        "You are a warm, friendly, professional document assistant. "
+        "Answer the user directly and concisely.\n"
+        f"User: {message}\n"
+        "Assistant:"
+    )
+    return await llm_client.complete_prompt(prompt)
 
 
 def _invoice_list_message(invoice_count: int) -> str:
@@ -139,7 +147,17 @@ async def chat(
         )
 
     if decision.action == "answer":
-        return AiChatAnswerResponse(status="answer", message=decision.message)
+        try:
+            answer = await _answer_chat_message(payload.message)
+        except LlmServiceError:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "llm_unavailable",
+                    "message": CHAT_LLM_UNAVAILABLE_MESSAGE,
+                },
+            )
+        return AiChatAnswerResponse(status="answer", message=answer)
 
     if decision.action == "list_invoices":
         invoices = list_invoices()
