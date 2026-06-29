@@ -27,19 +27,19 @@ from app.services.llm_client import LlmServiceError, llm_client
 
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
-CHAT_DECISION_PROMPT = """You are a warm, friendly, professional document assistant.
-Decide what the backend should do with the user message.
-Return exactly one action and nothing else:
-answer
-list_invoices
-create_invoice
+CHAT_DECISION_PROMPT = """Classify the user request.
+Actions: answer, list_invoices, create_invoice.
 
-Rules:
-- Use "answer" for greetings, professional questions, and anything that does not need an endpoint call.
-- Use "list_invoices" when the user asks to show, list, find, or summarize invoices.
-- Use "create_invoice" only when the user clearly wants to create or generate an invoice.
+User: hi
+Action: answer
 
-User message: __USER_MESSAGE__
+User: show me all my invoices
+Action: list_invoices
+
+User: create invoice for Alex for design 300 dollars
+Action: create_invoice
+
+User: __USER_MESSAGE__
 Action:
 """
 
