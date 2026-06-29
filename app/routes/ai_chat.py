@@ -75,7 +75,11 @@ def _load_chat_decision(content: str) -> ChatDecision:
 
 async def _decide_chat_action(message: str) -> ChatDecision:
     prompt = CHAT_DECISION_PROMPT.replace("__USER_MESSAGE__", message)
-    content = await llm_client.complete_prompt(prompt)
+    content = await llm_client.complete_prompt(
+        prompt,
+        max_tokens=8,
+        stop=["\n", "User:"],
+    )
     return _load_chat_decision(content)
 
 
