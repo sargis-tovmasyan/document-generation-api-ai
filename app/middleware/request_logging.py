@@ -30,6 +30,16 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            response.headers["X-Request-ID"] = request_id
+            logger.info(
+                "request.completed method=%s path=%s status_code=%s duration_ms=%.2f",
+                request.method,
+                request.url.path,
+                response.status_code,
+                duration_ms,
+            )
+            return response
         except Exception:
             duration_ms = (time.perf_counter() - started_at) * 1000
             logger.exception(
@@ -41,14 +51,3 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             raise
         finally:
             request_id_context.reset(token)
-
-        duration_ms = (time.perf_counter() - started_at) * 1000
-        response.headers["X-Request-ID"] = request_id
-        logger.info(
-            "request.completed method=%s path=%s status_code=%s duration_ms=%.2f",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-        )
-        return response
