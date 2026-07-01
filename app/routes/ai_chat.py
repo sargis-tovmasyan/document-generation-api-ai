@@ -121,9 +121,6 @@ def _invoice_list_message(invoice_count: int) -> str:
 
 
 async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONResponse:
-    if not _has_item_amount(message):
-        return _fallback_invoice_draft(message)
-
     draft = await _extract_draft_or_error(message)
     if (
         isinstance(draft, JSONResponse)
