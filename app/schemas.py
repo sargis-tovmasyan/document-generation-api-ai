@@ -166,10 +166,11 @@ class InvoiceDraft(BaseModel):
     business: InvoiceDraftParty = Field(default_factory=InvoiceDraftParty)
     client: InvoiceDraftParty = Field(default_factory=InvoiceDraftParty)
     items: list[InvoiceDraftItem] = Field(default_factory=list, max_length=100)
+    raw_items: str | None = Field(default=None, max_length=5000)
     notes: str | None = Field(default=None, max_length=5000)
     payment_terms: str | None = Field(default=None, max_length=2000)
 
-    @field_validator("invoice_number", "notes", "payment_terms", mode="before")
+    @field_validator("invoice_number", "raw_items", "notes", "payment_terms", mode="before")
     @classmethod
     def strip_optional_text(cls, value: str | None) -> str | None:
         if value is None:

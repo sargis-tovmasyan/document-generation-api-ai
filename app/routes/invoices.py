@@ -1,11 +1,16 @@
+import json
+
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 
 from app.schemas import (
     InvoiceCreate,
     InvoiceCreateResponse,
     InvoiceDraftCompleteRequest,
     InvoiceDraftCreatedResponse,
+    InvoiceDraft,
+    InvoiceDraftItem,
     InvoiceDraftMissingResponse,
     InvoiceListItem,
 )
@@ -20,25 +25,86 @@ from app.services.invoice_service import (
     list_invoices,
     reset_invoice_store,
 )
+from app.services.llm_client import LlmServiceError, llm_client
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+ITEM_NORMALIZATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string"},
+                    "quantity": {"type": "number"},
+                    "unit_price": {"type": "number"},
+                },
+                "required": ["description", "quantity", "unit_price"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+
+async def _normalize_raw_invoice_items(draft: InvoiceDraft) -> InvoiceDraft:
+    if not draft.raw_items:
+        return draft
+
+    prompt = (
+        "Convert the user's invoice item text into JSON invoice items. "
+        "Understand natural wording such as 'x2', '2 times', 'count: 2', "
+        "'qty 2', and similar quantity phrases. "
+        "Use quantity as the count and unit_price as the price per one unit. "
+        "Keep descriptions concise and do not include the price in the description.\n"
+        f"Item text: {draft.raw_items}\n"
+        "JSON:"
+    )
+    try:
+        content = await llm_client.complete_prompt(
+            prompt,
+            json_schema=ITEM_NORMALIZATION_SCHEMA,
+            max_tokens=512,
+        )
+        raw = json.loads(content)
+        items = [InvoiceDraftItem.model_validate(item) for item in raw["items"]]
+    except LlmServiceError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI assistant is temporarily unavailable. Please try again later.",
+        ) from error
+    except (KeyError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Could not understand invoice items. Please rewrite the items with descriptions, quantities, and prices.",
+        ) from error
+
+    data = draft.model_dump()
+    data["items"] = [item.model_dump() for item in items]
+    data["raw_items"] = None
+    return InvoiceDraft.model_validate(data)
 
 
 @router.post(
     "/draft/complete",
     response_model=InvoiceDraftCreatedResponse | InvoiceDraftMissingResponse,
 )
-def complete_invoice_draft(
+async def complete_invoice_draft(
     payload: InvoiceDraftCompleteRequest,
 ) -> InvoiceDraftCreatedResponse | InvoiceDraftMissingResponse:
-    missing_fields = find_missing_invoice_fields(payload.draft)
+    draft = await _normalize_raw_invoice_items(payload.draft)
+    missing_fields = find_missing_invoice_fields(draft)
     if missing_fields:
         return InvoiceDraftMissingResponse(
             status="missing_fields",
             missing_fields=missing_fields,
         )
 
-    invoice = invoice_draft_to_create(payload.draft)
+    invoice = invoice_draft_to_create(draft)
     try:
         created_invoice = create_invoice(invoice)
     except InvoiceNumberConflictError as error:
