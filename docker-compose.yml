@@ -2,13 +2,62 @@ services:
   api:
     build: .
     network_mode: "host"
+    depends_on:
+      - alloy
     environment:
       LLM_BASE_URL: "${LLM_BASE_URL:-http://127.0.0.1:8080}"
       LLM_COMPLETION_ENDPOINT: "${LLM_COMPLETION_ENDPOINT:-/completion}"
       LLM_TIMEOUT_SECONDS: "${LLM_TIMEOUT_SECONDS:-120}"
       LLM_MAX_TOKENS: "${LLM_MAX_TOKENS:-256}"
       LLM_TEMPERATURE: "${LLM_TEMPERATURE:-0.2}"
+      SERVICE_NAME: "${SERVICE_NAME:-document-generation-api}"
+      DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-local}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      OTEL_ENABLED: "${OTEL_ENABLED:-true}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4318}"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
     volumes:
       - ./data:/app/data
       - ./generated:/app/generated
     restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.5.1
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "12345:12345"
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.2.1
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  grafana-data:
