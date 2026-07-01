@@ -141,6 +141,7 @@ def _fallback_invoice_draft(message: str) -> InvoiceDraft:
         {
             "invoice_number": _extract_invoice_number(message),
             "currency": _extract_currency(message),
+            "business": {"name": _extract_business_name(message)},
             "client": {"name": _extract_client_name(message)},
             "items": _extract_items(message),
         }
@@ -153,6 +154,8 @@ def _merge_fallback_invoice_draft(draft: InvoiceDraft, fallback: InvoiceDraft) -
         data["invoice_number"] = fallback.invoice_number
     if data["currency"] is None:
         data["currency"] = fallback.currency
+    if data["business"]["name"] is None:
+        data["business"]["name"] = fallback.business.name
     if data["client"]["name"] is None:
         data["client"]["name"] = fallback.client.name
     if not data["items"] and fallback.items:
@@ -171,6 +174,15 @@ def _extract_invoice_number(message: str) -> str | None:
 
 
 def _extract_client_name(message: str) -> str | None:
+    labeled_match = re.search(
+        r"\bclient(?:\s+name)?\s*(?:is|:)\s*(.+?)(?=\s*,?\s*(?:my\s+)?business\b|[,;]|$)",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if labeled_match is not None:
+        name = labeled_match.group(1).strip()
+        return name if len(name.split()) <= 6 else None
+
     match = re.search(
         r"\b(?:for|to)\s+(?:my\s+)?(?:client\s+)?(.+?)(?=\s+(?:for|from|about|with)\b|[,.;]|$)",
         message,
@@ -180,6 +192,18 @@ def _extract_client_name(message: str) -> str | None:
         return None
     name = match.group(1).strip()
     return name if len(name.split()) <= 6 else None
+
+
+def _extract_business_name(message: str) -> str | None:
+    match = re.search(
+        r"\b(?:my\s+)?business(?:\s+name)?\s*(?:is|:)\s*(.+?)(?=[,;]|$)",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    name = match.group(1).strip()
+    return name if len(name.split()) <= 8 else None
 
 
 def _extract_currency(message: str) -> str | None:

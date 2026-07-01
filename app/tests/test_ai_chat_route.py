@@ -206,6 +206,40 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("invoice_number", response.missing_fields)
         self.assertNotIn("client.name", response.missing_fields)
 
+    async def test_prefills_labeled_names_when_invoice_parse_fails(self) -> None:
+        parse_error = JSONResponse(
+            status_code=422,
+            content={
+                "status": "ai_parse_error",
+                "message": "Could not extract invoice details.",
+            },
+        )
+
+        with (
+            patch(
+                "app.routes.ai_chat._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="create_invoice")),
+            ),
+            patch(
+                "app.routes.ai_chat._extract_draft_or_error",
+                AsyncMock(return_value=parse_error),
+            ),
+        ):
+            response = await chat(
+                AiChatRequest(
+                    message=(
+                        "lets create a invoice! client is Grill.am, "
+                        "my business name is Sargis Tovmasyan IE"
+                    )
+                )
+            )
+
+        self.assertEqual(response.status, "missing_fields")
+        self.assertEqual(response.draft.client.name, "Grill.am")
+        self.assertEqual(response.draft.business.name, "Sargis Tovmasyan IE")
+        self.assertNotIn("client.name", response.missing_fields)
+        self.assertNotIn("business.name", response.missing_fields)
+
     async def test_prefills_names_from_llm_when_message_has_no_items(self) -> None:
         draft = InvoiceDraft.model_validate(
             {
