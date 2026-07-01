@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
@@ -125,8 +126,34 @@ async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONRe
         isinstance(draft, JSONResponse)
         and draft.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     ):
-        return InvoiceDraft()
+        return _fallback_invoice_draft(message)
     return draft
+
+
+def _fallback_invoice_draft(message: str) -> InvoiceDraft:
+    return InvoiceDraft.model_validate(
+        {
+            "invoice_number": _extract_invoice_number(message),
+            "client": {"name": _extract_client_name(message)},
+        }
+    )
+
+
+def _extract_invoice_number(message: str) -> str | None:
+    match = re.search(r"\b([A-Z]{2,}-\d+)\b", message, flags=re.IGNORECASE)
+    return match.group(1).upper() if match else None
+
+
+def _extract_client_name(message: str) -> str | None:
+    match = re.search(
+        r"\b(?:for|to)\s+(?:my\s+)?(?:client\s+)?(.+?)(?=\s+(?:for|from|about|with)\b|[,.;]|$)",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    name = match.group(1).strip()
+    return name if len(name.split()) <= 6 else None
 
 
 @router.post(
