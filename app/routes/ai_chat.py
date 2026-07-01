@@ -121,12 +121,17 @@ def _invoice_list_message(invoice_count: int) -> str:
 
 
 async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONResponse:
+    if not _has_item_amount(message):
+        return _fallback_invoice_draft(message)
+
     draft = await _extract_draft_or_error(message)
     if (
         isinstance(draft, JSONResponse)
         and draft.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     ):
         return _fallback_invoice_draft(message)
+    if isinstance(draft, InvoiceDraft):
+        return _merge_fallback_invoice_draft(draft, _fallback_invoice_draft(message))
     return draft
 
 
@@ -134,9 +139,29 @@ def _fallback_invoice_draft(message: str) -> InvoiceDraft:
     return InvoiceDraft.model_validate(
         {
             "invoice_number": _extract_invoice_number(message),
+            "currency": _extract_currency(message),
             "client": {"name": _extract_client_name(message)},
+            "items": _extract_items(message),
         }
     )
+
+
+def _merge_fallback_invoice_draft(draft: InvoiceDraft, fallback: InvoiceDraft) -> InvoiceDraft:
+    data = draft.model_dump()
+    if data["invoice_number"] is None:
+        data["invoice_number"] = fallback.invoice_number
+    if data["currency"] is None:
+        data["currency"] = fallback.currency
+    if data["client"]["name"] is None:
+        data["client"]["name"] = fallback.client.name
+    if not data["items"] and fallback.items:
+        data["items"] = [item.model_dump() for item in fallback.items]
+    return InvoiceDraft.model_validate(data)
+
+
+def _has_item_amount(message: str) -> bool:
+    without_invoice_number = re.sub(r"\b[A-Z]{2,}-\d+\b", "", message, flags=re.IGNORECASE)
+    return bool(re.search(r"\d+(?:[.,]\d+)?\s*(?:dollars?|usd|amd|eur|rub|rur|\$|€|֏|₽)\b", without_invoice_number, flags=re.IGNORECASE))
 
 
 def _extract_invoice_number(message: str) -> str | None:
@@ -154,6 +179,37 @@ def _extract_client_name(message: str) -> str | None:
         return None
     name = match.group(1).strip()
     return name if len(name.split()) <= 6 else None
+
+
+def _extract_currency(message: str) -> str | None:
+    lowered = message.lower()
+    if "amd" in lowered or "dram" in lowered or "֏" in message:
+        return "AMD"
+    if "eur" in lowered or "euro" in lowered or "€" in message:
+        return "EUR"
+    if "rub" in lowered or "rur" in lowered or "ruble" in lowered or "₽" in message:
+        return "RUR"
+    if "usd" in lowered or "dollar" in lowered or "$" in message:
+        return "USD"
+    return None
+
+
+def _extract_items(message: str) -> list[dict]:
+    items: list[dict] = []
+    for match in re.finditer(
+        r"\bfor\s+(.+?)\s+(\d+(?:[.,]\d+)?)\s*(?:dollars?|usd|amd|eur|rub|rur|\$|€|֏|₽)\b",
+        message,
+        flags=re.IGNORECASE,
+    ):
+        description = match.group(1).split(" for ")[-1].strip(" ,.;")
+        items.append(
+            {
+                "description": description,
+                "quantity": 1,
+                "unit_price": match.group(2).replace(",", "."),
+            }
+        )
+    return items
 
 
 @router.post(

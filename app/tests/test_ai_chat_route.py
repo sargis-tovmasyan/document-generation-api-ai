@@ -176,14 +176,6 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         create_invoice_mock.assert_not_called()
 
     async def test_prefills_fallback_draft_when_invoice_parse_fails(self) -> None:
-        parse_error = JSONResponse(
-            status_code=422,
-            content={
-                "status": "ai_parse_error",
-                "message": "Could not extract invoice details.",
-            },
-        )
-
         with (
             patch(
                 "app.routes.ai_chat._decide_chat_action",
@@ -191,8 +183,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "app.routes.ai_chat._extract_draft_or_error",
-                AsyncMock(return_value=parse_error),
-            ),
+            ) as extract_mock,
         ):
             response = await chat(
                 AiChatRequest(
@@ -205,6 +196,31 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.draft.client.name, "Artashi mot LLC")
         self.assertNotIn("invoice_number", response.missing_fields)
         self.assertNotIn("client.name", response.missing_fields)
+        extract_mock.assert_not_called()
+
+    async def test_merges_fallback_items_when_extractor_misses_them(self) -> None:
+        draft = InvoiceDraft.model_validate({"client": {"name": "Alex"}})
+
+        with (
+            patch(
+                "app.routes.ai_chat._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="create_invoice")),
+            ),
+            patch("app.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
+        ):
+            response = await chat(
+                AiChatRequest(
+                    message="create invoice for Alex for website design 300 dollars"
+                )
+            )
+
+        self.assertEqual(response.status, "missing_fields")
+        self.assertEqual(response.draft.client.name, "Alex")
+        self.assertEqual(response.draft.currency, "USD")
+        self.assertEqual(response.draft.items[0].description, "website design")
+        self.assertEqual(response.draft.items[0].unit_price, 300)
+        self.assertNotIn("client.name", response.missing_fields)
+        self.assertNotIn("items", response.missing_fields)
 
     async def test_maps_llm_unavailable_to_503(self) -> None:
         with patch(
