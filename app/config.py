@@ -21,7 +21,7 @@ LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 SERVICE_NAME = os.getenv("SERVICE_NAME", "document-generation-api")
 DEPLOYMENT_ENVIRONMENT = os.getenv("DEPLOYMENT_ENVIRONMENT", "local")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+OTEL_ENABLED = os.getenv("OTEL_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv(
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "http://127.0.0.1:4318",
