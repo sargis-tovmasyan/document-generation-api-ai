@@ -70,8 +70,8 @@ async def _normalize_raw_invoice_items(draft: InvoiceDraft) -> InvoiceDraft:
         '{"items":[{"description":"Sharuma","quantity":1,"unit_price":1200},'
         '{"description":"Qyabab","quantity":2,"unit_price":1100}]}. '
         "Example: 'service, count: 2, price 500' becomes "
-        '{"items":[{"description":"service","quantity":2,"unit_price":500}]}.
-'
+        '{"items":[{"description":"service","quantity":2,"unit_price":500}]}.'
+        "\n"
         f"Item text: {draft.raw_items}\n"
         "JSON:"
     )
