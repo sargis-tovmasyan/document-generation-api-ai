@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
@@ -20,6 +22,8 @@ from app.services.invoice_draft_validator import (
 from app.services.invoice_service import InvoiceNumberConflictError, create_invoice
 from app.services.llm_client import LlmServiceError
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/ai/invoice", tags=["ai-invoice"])
 
 LLM_UNAVAILABLE_MESSAGE = (
@@ -33,9 +37,11 @@ AI_PARSE_ERROR_MESSAGE = (
 
 
 async def _extract_draft_or_error(message: str) -> InvoiceDraft | JSONResponse:
+    logger.info("invoice.extract.llm.started message_length=%s", len(message))
     try:
-        return await ai_invoice_extractor.extract(message)
+        draft = await ai_invoice_extractor.extract(message)
     except LlmServiceError:
+        logger.exception("invoice.extract.llm_unavailable message_length=%s", len(message))
         return JSONResponse(
             status_code=503,
             content={
@@ -44,6 +50,7 @@ async def _extract_draft_or_error(message: str) -> InvoiceDraft | JSONResponse:
             },
         )
     except AiInvoiceParseError:
+        logger.exception("invoice.extract.parse_error message_length=%s", len(message))
         return JSONResponse(
             status_code=422,
             content={
@@ -51,6 +58,15 @@ async def _extract_draft_or_error(message: str) -> InvoiceDraft | JSONResponse:
                 "message": AI_PARSE_ERROR_MESSAGE,
             },
         )
+
+    logger.info(
+        "invoice.extract.llm.completed message_length=%s item_count=%s currency=%s template_language=%s",
+        len(message),
+        len(draft.items),
+        draft.currency,
+        draft.template_language,
+    )
+    return draft
 
 
 @router.post(
@@ -64,11 +80,18 @@ async def _extract_draft_or_error(message: str) -> InvoiceDraft | JSONResponse:
 async def extract_invoice_draft(
     payload: AiInvoiceExtractRequest,
 ) -> AiInvoiceExtractResponse | JSONResponse:
+    logger.info("invoice.extract.started message_length=%s", len(payload.message))
     draft = await _extract_draft_or_error(payload.message)
     if isinstance(draft, JSONResponse):
         return draft
 
     missing_fields = find_missing_invoice_fields(draft)
+    logger.info(
+        "invoice.extract.completed status=%s missing_fields=%s item_count=%s",
+        "missing_fields" if missing_fields else "ready",
+        missing_fields,
+        len(draft.items),
+    )
     return AiInvoiceExtractResponse(
         status="missing_fields" if missing_fields else "ready",
         draft=draft,
@@ -88,12 +111,14 @@ async def extract_invoice_draft(
 async def generate_invoice_from_message(
     payload: AiInvoiceExtractRequest,
 ) -> InvoiceDraftCreatedResponse | InvoiceDraftMissingResponse | JSONResponse:
+    logger.info("invoice.generate.started message_length=%s", len(payload.message))
     draft = await _extract_draft_or_error(payload.message)
     if isinstance(draft, JSONResponse):
         return draft
 
     missing_fields = find_missing_invoice_fields(draft)
     if missing_fields:
+        logger.info("invoice.generate.missing_fields missing_fields=%s", missing_fields)
         return InvoiceDraftMissingResponse(
             status="missing_fields",
             missing_fields=missing_fields,
@@ -103,11 +128,19 @@ async def generate_invoice_from_message(
     try:
         created_invoice = create_invoice(invoice)
     except InvoiceNumberConflictError as error:
+        logger.warning("invoice.generate.conflict invoice_number=%s", invoice.invoice_number)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(error),
         ) from error
 
+    logger.info(
+        "invoice.generate.created invoice_id=%s invoice_number=%s total=%s currency=%s",
+        created_invoice["id"],
+        created_invoice["invoice_number"],
+        created_invoice["total"],
+        created_invoice["currency"],
+    )
     return InvoiceDraftCreatedResponse(
         status="created",
         invoice_id=created_invoice["id"],
