@@ -59,8 +59,14 @@ async def _normalize_raw_invoice_items(draft: InvoiceDraft) -> InvoiceDraft:
         "Convert the user's invoice item text into JSON invoice items. "
         "Understand natural wording such as 'x2', '2 times', 'count: 2', "
         "'qty 2', and similar quantity phrases. "
-        "Use quantity as the count and unit_price as the price per one unit. "
-        "Keep descriptions concise and do not include the price in the description.\n"
+        "Use quantity as the count. Use the amount after '-' or ':' as unit_price "
+        "unless the user explicitly says it is the total price. "
+        "Keep descriptions concise and do not include quantity or price in the description. "
+        "Example: 'Sharuma x1 - 1200, Qyabab x2 - 1100' becomes "
+        '{"items":[{"description":"Sharuma","quantity":1,"unit_price":1200},'
+        '{"description":"Qyabab","quantity":2,"unit_price":1100}]}. '
+        "Example: 'service, count: 2, price 500' becomes "
+        '{"items":[{"description":"service","quantity":2,"unit_price":500}]}.\n'
         f"Item text: {draft.raw_items}\n"
         "JSON:"
     )
