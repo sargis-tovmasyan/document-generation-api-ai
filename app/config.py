@@ -18,6 +18,15 @@ LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "256"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 
+SERVICE_NAME = os.getenv("SERVICE_NAME", "document-generation-api")
+DEPLOYMENT_ENVIRONMENT = os.getenv("DEPLOYMENT_ENVIRONMENT", "local")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv(
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "http://127.0.0.1:4318",
+)
+
 
 def ensure_directories() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
