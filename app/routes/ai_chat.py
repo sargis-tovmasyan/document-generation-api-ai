@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from typing import Literal
 
@@ -26,6 +27,8 @@ from app.services.invoice_service import (
     list_invoices,
 )
 from app.services.llm_client import LlmServiceError, llm_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
@@ -91,7 +94,9 @@ async def _decide_chat_action(message: str) -> ChatDecision:
         json_schema=CHAT_DECISION_SCHEMA,
         max_tokens=32,
     )
-    return _load_chat_decision(content)
+    decision = _load_chat_decision(content)
+    logger.info("ai.chat.decision action=%s message_length=%s", decision.action, len(message))
+    return decision
 
 
 def _load_chat_decision_from_text(content: str) -> ChatDecision:
@@ -126,6 +131,7 @@ async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONRe
         isinstance(draft, JSONResponse)
         and draft.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     ):
+        logger.info("ai.chat.invoice.extract_fallback message_length=%s", len(message))
         return _fallback_invoice_draft(message)
     if isinstance(draft, InvoiceDraft):
         if not _has_item_amount(message):
@@ -259,9 +265,11 @@ async def chat(
     | InvoiceDraftCreatedResponse
     | JSONResponse
 ):
+    logger.info("ai.chat.started message_length=%s", len(payload.message))
     try:
         decision = await _decide_chat_action(payload.message)
     except LlmServiceError:
+        logger.exception("ai.chat.decision.llm_unavailable")
         return JSONResponse(
             status_code=503,
             content={
@@ -270,6 +278,7 @@ async def chat(
             },
         )
     except (ValueError, ValidationError, json.JSONDecodeError):
+        logger.exception("ai.chat.decision.parse_error")
         return JSONResponse(
             status_code=422,
             content={
@@ -282,6 +291,7 @@ async def chat(
         try:
             answer = await _answer_chat_message(payload.message)
         except LlmServiceError:
+            logger.exception("ai.chat.answer.llm_unavailable")
             return JSONResponse(
                 status_code=503,
                 content={
@@ -289,10 +299,12 @@ async def chat(
                     "message": CHAT_LLM_UNAVAILABLE_MESSAGE,
                 },
             )
+        logger.info("ai.chat.completed status=answer answer_length=%s", len(answer))
         return AiChatAnswerResponse(status="answer", message=answer)
 
     if decision.action == "list_invoices":
         invoices = list_invoices()
+        logger.info("ai.chat.completed status=invoice_list invoice_count=%s", len(invoices))
         return AiChatInvoiceListResponse(
             status="invoice_list",
             message=_invoice_list_message(len(invoices)),
@@ -305,6 +317,7 @@ async def chat(
 
     missing_fields = find_missing_invoice_fields(draft)
     if missing_fields:
+        logger.info("ai.chat.completed status=missing_fields missing_fields=%s", missing_fields)
         return AiChatMissingFieldsResponse(
             status="missing_fields",
             missing_fields=missing_fields,
@@ -315,11 +328,19 @@ async def chat(
     try:
         created_invoice = create_invoice(invoice)
     except InvoiceNumberConflictError as error:
+        logger.warning("ai.chat.invoice.conflict invoice_number=%s", invoice.invoice_number)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(error),
         ) from error
 
+    logger.info(
+        "ai.chat.completed status=created invoice_id=%s invoice_number=%s total=%s currency=%s",
+        created_invoice["id"],
+        created_invoice["invoice_number"],
+        created_invoice["total"],
+        created_invoice["currency"],
+    )
     return InvoiceDraftCreatedResponse(
         status="created",
         invoice_id=created_invoice["id"],
