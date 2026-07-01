@@ -211,6 +211,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
             {
                 "business": {"name": "Sargis Tovmasyan IE"},
                 "client": {"name": "Grill.am"},
+                "items": [{"description": "Grill.am"}],
             }
         )
 
@@ -233,8 +234,10 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, "missing_fields")
         self.assertEqual(response.draft.client.name, "Grill.am")
         self.assertEqual(response.draft.business.name, "Sargis Tovmasyan IE")
+        self.assertEqual(response.draft.items, [])
         self.assertNotIn("client.name", response.missing_fields)
         self.assertNotIn("business.name", response.missing_fields)
+        self.assertIn("items", response.missing_fields)
 
     async def test_merges_fallback_items_when_extractor_misses_them(self) -> None:
         draft = InvoiceDraft.model_validate({"client": {"name": "Alex"}})
