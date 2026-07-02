@@ -7,6 +7,14 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
+from app.observability_events import (
+    include_frontend_message,
+    include_response_body,
+    log_event,
+    summarize_created_invoice,
+    summarize_invoice_draft,
+    summarize_response,
+)
 from app.routes.ai_invoice import _extract_draft_or_error
 from app.schemas import (
     AiChatAnswerResponse,
@@ -88,6 +96,7 @@ def _load_chat_decision(content: str) -> ChatDecision:
 
 
 async def _decide_chat_action(message: str) -> ChatDecision:
+    log_event("ai.chat.decision.started", **include_frontend_message(message))
     prompt = CHAT_DECISION_PROMPT.replace("__USER_MESSAGE__", message)
     content = await llm_client.complete_prompt(
         prompt,
@@ -95,7 +104,12 @@ async def _decide_chat_action(message: str) -> ChatDecision:
         max_tokens=32,
     )
     decision = _load_chat_decision(content)
-    logger.info("ai.chat.decision action=%s message_length=%s", decision.action, len(message))
+    log_event(
+        "ai.chat.decision.completed",
+        action=decision.action,
+        decision_message=decision.message,
+        **include_frontend_message(message),
+    )
     return decision
 
 
@@ -108,13 +122,16 @@ def _load_chat_decision_from_text(content: str) -> ChatDecision:
 
 
 async def _answer_chat_message(message: str) -> str:
+    log_event("ai.chat.answer.started", **include_frontend_message(message))
     prompt = (
         "You are a warm, friendly, professional document assistant. "
         "Answer the user directly and concisely.\n"
         f"User: {message}\n"
         "Assistant:"
     )
-    return await llm_client.complete_prompt(prompt)
+    answer = await llm_client.complete_prompt(prompt)
+    log_event("ai.chat.answer.completed", answer_length=len(answer))
+    return answer
 
 
 def _invoice_list_message(invoice_count: int) -> str:
@@ -126,13 +143,19 @@ def _invoice_list_message(invoice_count: int) -> str:
 
 
 async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONResponse:
+    log_event("ai.chat.invoice.extract.started", **include_frontend_message(message))
     draft = await _extract_draft_or_error(message)
     if (
         isinstance(draft, JSONResponse)
         and draft.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     ):
-        logger.info("ai.chat.invoice.extract_fallback message_length=%s", len(message))
-        return _fallback_invoice_draft(message)
+        fallback = _fallback_invoice_draft(message)
+        log_event(
+            "ai.chat.invoice.extract.fallback_used",
+            **include_frontend_message(message),
+            draft=summarize_invoice_draft(fallback),
+        )
+        return fallback
     if isinstance(draft, InvoiceDraft):
         if not _has_item_amount(message):
             data = draft.model_dump()
@@ -142,7 +165,13 @@ async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONRe
                 if item.unit_price is not None
             ]
             draft = InvoiceDraft.model_validate(data)
-        return _merge_fallback_invoice_draft(draft, _fallback_invoice_draft(message))
+        merged_draft = _merge_fallback_invoice_draft(draft, _fallback_invoice_draft(message))
+        log_event(
+            "ai.chat.invoice.extract.completed",
+            **include_frontend_message(message),
+            draft=summarize_invoice_draft(merged_draft),
+        )
+        return merged_draft
     return draft
 
 
@@ -269,83 +298,126 @@ async def chat(
     | InvoiceDraftCreatedResponse
     | JSONResponse
 ):
-    logger.info("ai.chat.started message_length=%s", len(payload.message))
+    log_event("ai.chat.received", **include_frontend_message(payload.message))
     try:
         decision = await _decide_chat_action(payload.message)
-    except LlmServiceError:
-        logger.exception("ai.chat.decision.llm_unavailable")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "llm_unavailable",
-                "message": CHAT_LLM_UNAVAILABLE_MESSAGE,
-            },
+    except LlmServiceError as error:
+        response_body = {
+            "status": "llm_unavailable",
+            "message": CHAT_LLM_UNAVAILABLE_MESSAGE,
+        }
+        log_event(
+            "ai.chat.response.sent",
+            level=logging.WARNING,
+            status=response_body["status"],
+            error_type=type(error).__name__,
+            error=str(error),
+            **include_response_body(response_body),
         )
-    except (ValueError, ValidationError, json.JSONDecodeError):
-        logger.exception("ai.chat.decision.parse_error")
-        return JSONResponse(
-            status_code=422,
-            content={
-                "status": "ai_parse_error",
-                "message": CHAT_PARSE_ERROR_MESSAGE,
-            },
+        return JSONResponse(status_code=503, content=response_body)
+    except (ValueError, ValidationError, json.JSONDecodeError) as error:
+        response_body = {
+            "status": "ai_parse_error",
+            "message": CHAT_PARSE_ERROR_MESSAGE,
+        }
+        log_event(
+            "ai.chat.response.sent",
+            level=logging.WARNING,
+            status=response_body["status"],
+            error_type=type(error).__name__,
+            error=str(error),
+            **include_response_body(response_body),
         )
+        return JSONResponse(status_code=422, content=response_body)
 
     if decision.action == "answer":
         try:
             answer = await _answer_chat_message(payload.message)
-        except LlmServiceError:
-            logger.exception("ai.chat.answer.llm_unavailable")
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "status": "llm_unavailable",
-                    "message": CHAT_LLM_UNAVAILABLE_MESSAGE,
-                },
+        except LlmServiceError as error:
+            response_body = {
+                "status": "llm_unavailable",
+                "message": CHAT_LLM_UNAVAILABLE_MESSAGE,
+            }
+            log_event(
+                "ai.chat.response.sent",
+                level=logging.WARNING,
+                status=response_body["status"],
+                action=decision.action,
+                error_type=type(error).__name__,
+                error=str(error),
+                **include_response_body(response_body),
             )
-        logger.info("ai.chat.completed status=answer answer_length=%s", len(answer))
-        return AiChatAnswerResponse(status="answer", message=answer)
+            return JSONResponse(status_code=503, content=response_body)
+        response = AiChatAnswerResponse(status="answer", message=answer)
+        log_event(
+            "ai.chat.response.sent",
+            status=response.status,
+            action=decision.action,
+            answer_length=len(answer),
+            **include_response_body(summarize_response(response)),
+        )
+        return response
 
     if decision.action == "list_invoices":
         invoices = list_invoices()
-        logger.info("ai.chat.completed status=invoice_list invoice_count=%s", len(invoices))
-        return AiChatInvoiceListResponse(
+        response = AiChatInvoiceListResponse(
             status="invoice_list",
             message=_invoice_list_message(len(invoices)),
             invoices=invoices,
         )
+        log_event(
+            "ai.chat.response.sent",
+            status=response.status,
+            action=decision.action,
+            invoice_count=len(invoices),
+            **include_response_body(summarize_response(response)),
+        )
+        return response
 
     draft = await _extract_invoice_draft_for_chat(payload.message)
     if isinstance(draft, JSONResponse):
         return draft
 
     missing_fields = find_missing_invoice_fields(draft)
+    log_event(
+        "ai.chat.invoice.validation.completed",
+        missing_fields=missing_fields,
+        draft=summarize_invoice_draft(draft),
+    )
     if missing_fields:
-        logger.info("ai.chat.completed status=missing_fields missing_fields=%s", missing_fields)
-        return AiChatMissingFieldsResponse(
+        response = AiChatMissingFieldsResponse(
             status="missing_fields",
             missing_fields=missing_fields,
             draft=draft,
         )
+        log_event(
+            "ai.chat.response.sent",
+            level=logging.WARNING,
+            status=response.status,
+            action=decision.action,
+            missing_fields=missing_fields,
+            draft=summarize_invoice_draft(draft),
+            **include_response_body(summarize_response(response)),
+        )
+        return response
 
     invoice = invoice_draft_to_create(draft)
     try:
         created_invoice = create_invoice(invoice)
     except InvoiceNumberConflictError as error:
-        logger.warning("ai.chat.invoice.conflict invoice_number=%s", invoice.invoice_number)
+        log_event(
+            "ai.chat.invoice.conflict",
+            level=logging.WARNING,
+            invoice_number=invoice.invoice_number,
+            error_type=type(error).__name__,
+            error=str(error),
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(error),
         ) from error
 
-    logger.info(
-        "ai.chat.completed status=created invoice_id=%s invoice_number=%s total=%s currency=%s",
-        created_invoice["id"],
-        created_invoice["invoice_number"],
-        created_invoice["total"],
-        created_invoice["currency"],
-    )
-    return InvoiceDraftCreatedResponse(
+    response = InvoiceDraftCreatedResponse(
         status="created",
         invoice_id=created_invoice["id"],
         invoice_number=created_invoice["invoice_number"],
@@ -354,3 +426,11 @@ async def chat(
         currency=created_invoice["currency"],
         pdf_url=f"/invoices/{created_invoice['id']}/download",
     )
+    log_event(
+        "ai.chat.response.sent",
+        status=response.status,
+        action=decision.action,
+        created_invoice=summarize_created_invoice(created_invoice),
+        **include_response_body(summarize_response(response)),
+    )
+    return response
