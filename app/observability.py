@@ -19,6 +19,7 @@ from app.config import (
     LOG_LEVEL,
     OTEL_ENABLED,
     OTEL_EXPORTER_OTLP_ENDPOINT,
+    OTEL_TRACES_ENABLED,
     SERVICE_NAME,
 )
 
@@ -83,7 +84,7 @@ def configure_logging() -> None:
 
 
 def configure_tracing() -> None:
-    if not OTEL_ENABLED:
+    if not OTEL_ENABLED or not OTEL_TRACES_ENABLED:
         return
 
     resource = Resource.create(
