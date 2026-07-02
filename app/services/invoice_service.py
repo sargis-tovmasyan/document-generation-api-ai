@@ -1,3 +1,4 @@
+import logging
 import re
 import sqlite3
 from decimal import Decimal, ROUND_HALF_UP
@@ -6,10 +7,13 @@ from uuid import uuid4
 
 from app.config import INVOICE_PDF_DIR
 from app.database import database_connection
+from app.observability_events import log_event, summarize_invoice_draft
 from app.schemas import InvoiceCreate
 from app.services.pdf_service import generate_invoice_pdf
 
 MONEY_QUANTUM = Decimal("0.01")
+
+logger = logging.getLogger(__name__)
 
 
 class InvoiceNumberConflictError(Exception):
@@ -31,6 +35,11 @@ def build_pdf_filename(invoice_number: str) -> str:
 
 
 def create_invoice(invoice: InvoiceCreate) -> dict:
+    log_event(
+        "invoice.service.create.started",
+        invoice_number=invoice.invoice_number,
+        draft=summarize_invoice_draft(invoice),
+    )
     item_rows = [
         {
             "description": item.description,
@@ -45,6 +54,16 @@ def create_invoice(invoice: InvoiceCreate) -> dict:
     filename = build_pdf_filename(invoice.invoice_number)
     pdf_path = INVOICE_PDF_DIR / filename
     relative_pdf_path = Path("generated") / "invoices" / filename
+
+    log_event(
+        "invoice.service.calculated",
+        invoice_number=invoice.invoice_number,
+        item_count=len(item_rows),
+        subtotal=subtotal,
+        total=total,
+        currency=invoice.currency,
+        pdf_path=str(pdf_path),
+    )
 
     template_context = {
         "invoice": invoice,
@@ -83,6 +102,12 @@ def create_invoice(invoice: InvoiceCreate) -> dict:
                 ),
             )
             invoice_id = cursor.lastrowid
+            log_event(
+                "invoice.database.saved",
+                invoice_id=invoice_id,
+                invoice_number=invoice.invoice_number,
+                item_count=len(item_rows),
+            )
 
             connection.executemany(
                 """
@@ -101,24 +126,52 @@ def create_invoice(invoice: InvoiceCreate) -> dict:
                     for item in item_rows
                 ],
             )
+            log_event(
+                "invoice.database.items_saved",
+                invoice_id=invoice_id,
+                invoice_number=invoice.invoice_number,
+                item_count=len(item_rows),
+            )
 
             generate_invoice_pdf(
                 template_context,
                 pdf_path,
                 invoice.template_language,
             )
+            log_event(
+                "invoice.pdf.generated",
+                invoice_id=invoice_id,
+                invoice_number=invoice.invoice_number,
+                template_language=invoice.template_language,
+                pdf_path=str(pdf_path),
+                pdf_url=f"/{relative_pdf_path}",
+            )
     except sqlite3.IntegrityError as error:
         if pdf_path.exists():
             pdf_path.unlink()
+        log_event(
+            "invoice.service.create.conflict",
+            level=logging.WARNING,
+            invoice_number=invoice.invoice_number,
+            error_type=type(error).__name__,
+            error=str(error),
+        )
         raise InvoiceNumberConflictError(
             f"Invoice number '{invoice.invoice_number}' already exists"
         ) from error
-    except Exception:
+    except Exception as error:
         if pdf_path.exists():
             pdf_path.unlink()
+        log_event(
+            "invoice.service.create.failed",
+            level=logging.ERROR,
+            invoice_number=invoice.invoice_number,
+            error_type=type(error).__name__,
+            error=str(error),
+        )
         raise
 
-    return {
+    created_invoice = {
         "id": invoice_id,
         "invoice_number": invoice.invoice_number,
         "subtotal": subtotal,
@@ -126,6 +179,16 @@ def create_invoice(invoice: InvoiceCreate) -> dict:
         "currency": invoice.currency,
         "pdf_url": f"/generated/invoices/{filename}",
     }
+    log_event(
+        "invoice.service.create.completed",
+        invoice_id=invoice_id,
+        invoice_number=invoice.invoice_number,
+        subtotal=subtotal,
+        total=total,
+        currency=invoice.currency,
+        pdf_url=created_invoice["pdf_url"],
+    )
+    return created_invoice
 
 
 def list_invoices() -> list[dict]:
@@ -140,13 +203,15 @@ def list_invoices() -> list[dict]:
             """
         ).fetchall()
 
-    return [
+    invoices = [
         {
             **dict(row),
             "pdf_url": f"/{row['pdf_path']}",
         }
         for row in rows
     ]
+    log_event("invoice.service.list.completed", invoice_count=len(invoices))
+    return invoices
 
 
 def reset_invoice_store() -> dict:
@@ -165,10 +230,12 @@ def reset_invoice_store() -> dict:
             ("invoice_items", "invoices"),
         )
 
-    return {
+    result = {
         "deleted_invoices": invoice_count,
         "deleted_items": item_count,
     }
+    log_event("invoice.service.reset.completed", level=logging.WARNING, **result)
+    return result
 
 
 def get_invoice_pdf_path(invoice_id: int) -> Path | None:
@@ -179,10 +246,24 @@ def get_invoice_pdf_path(invoice_id: int) -> Path | None:
         ).fetchone()
 
     if row is None:
+        log_event("invoice.service.pdf_path.not_found", invoice_id=invoice_id)
         return None
 
     candidate = (INVOICE_PDF_DIR.parent.parent / row["pdf_path"]).resolve()
     generated_root = INVOICE_PDF_DIR.parent.resolve()
     if not candidate.is_relative_to(generated_root):
+        log_event(
+            "invoice.service.pdf_path.invalid",
+            level=logging.ERROR,
+            invoice_id=invoice_id,
+            stored_path=row["pdf_path"],
+            resolved_path=str(candidate),
+        )
         raise ValueError("Stored PDF path is outside the generated directory")
+    log_event(
+        "invoice.service.pdf_path.resolved",
+        invoice_id=invoice_id,
+        stored_path=row["pdf_path"],
+        resolved_path=str(candidate),
+    )
     return candidate

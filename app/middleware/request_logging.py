@@ -7,8 +7,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.observability import request_id_context
-
-logger = logging.getLogger(__name__)
+from app.observability_events import log_event
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -21,32 +20,37 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         token = request_id_context.set(request_id)
         started_at = time.perf_counter()
 
-        logger.info(
-            "request.started method=%s path=%s client=%s",
-            request.method,
-            request.url.path,
-            request.client.host if request.client else "unknown",
+        log_event(
+            "request.started",
+            method=request.method,
+            path=request.url.path,
+            query=str(request.url.query) if request.url.query else None,
+            client=request.client.host if request.client else "unknown",
+            user_agent=request.headers.get("user-agent"),
         )
 
         try:
             response = await call_next(request)
             duration_ms = (time.perf_counter() - started_at) * 1000
             response.headers["X-Request-ID"] = request_id
-            logger.info(
-                "request.completed method=%s path=%s status_code=%s duration_ms=%.2f",
-                request.method,
-                request.url.path,
-                response.status_code,
-                duration_ms,
+            log_event(
+                "request.completed",
+                method=request.method,
+                path=request.url.path,
+                status_code=response.status_code,
+                duration_ms=round(duration_ms, 2),
             )
             return response
-        except Exception:
+        except Exception as error:
             duration_ms = (time.perf_counter() - started_at) * 1000
-            logger.exception(
-                "request.failed method=%s path=%s duration_ms=%.2f",
-                request.method,
-                request.url.path,
-                duration_ms,
+            log_event(
+                "request.failed",
+                level=logging.ERROR,
+                method=request.method,
+                path=request.url.path,
+                duration_ms=round(duration_ms, 2),
+                error_type=type(error).__name__,
+                error=str(error),
             )
             raise
         finally:
