@@ -45,7 +45,7 @@ else
     exit 1
 fi
 
-echo "Starting Document Generation API..."
+echo "Starting Document Generation API with observability stack..."
 
 "${COMPOSE_CMD[@]}" down
 
@@ -61,8 +61,28 @@ echo ""
 "${COMPOSE_CMD[@]}" ps
 echo ""
 echo "Document Generation API started."
-echo "API:      http://localhost:8000"
-echo "API docs: http://localhost:8000/docs"
+echo "API:         http://localhost:8000"
+echo "API docs:    http://localhost:8000/docs"
+echo "Grafana:     http://localhost:3000"
+echo "Grafana user: admin"
+echo "Grafana pass: admin"
+echo "Loki:        http://localhost:3100"
+echo "Alloy UI:    http://localhost:12345"
+echo "OTLP HTTP:   http://localhost:4318"
 echo ""
-echo "View logs: ${COMPOSE_CMD[*]} logs -f api"
-echo "Stop API:  ${COMPOSE_CMD[*]} down"
+echo "Grafana logs:"
+echo "  1. Open http://localhost:3000"
+echo "  2. Login with admin/admin unless changed with GRAFANA_ADMIN_USER/GRAFANA_ADMIN_PASSWORD"
+echo "  3. Go to Explore"
+echo "  4. Select Loki datasource"
+echo "  5. Query: {service_name=\"document-generation-api\"}"
+echo ""
+echo "Useful LogQL queries:"
+echo "  {service_name=\"document-generation-api\"} |= \"request.\""
+echo "  {service_name=\"document-generation-api\"} |= \"ai.chat\""
+echo "  {service_name=\"document-generation-api\"} |= \"invoice.extract\""
+echo "  {service_name=\"document-generation-api\"} |= \"llm.request.failed\""
+echo "  count_over_time({service_name=\"document-generation-api\"} |= \"invoice.draft.complete.created\" [5m])"
+echo ""
+echo "CLI logs: ${COMPOSE_CMD[*]} logs -f api"
+echo "Stop all:  ${COMPOSE_CMD[*]} down"
