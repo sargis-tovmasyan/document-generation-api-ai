@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -40,13 +41,16 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 duration_ms=round(duration_ms, 2),
             )
             return response
-        except Exception:
+        except Exception as error:
             duration_ms = (time.perf_counter() - started_at) * 1000
             log_event(
                 "request.failed",
+                level=logging.ERROR,
                 method=request.method,
                 path=request.url.path,
                 duration_ms=round(duration_ms, 2),
+                error_type=type(error).__name__,
+                error=str(error),
             )
             raise
         finally:
