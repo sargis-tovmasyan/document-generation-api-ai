@@ -9,14 +9,12 @@ otelcol.receiver.otlp "default" {
 
   output {
     logs = [otelcol.processor.batch.default.input]
-    traces = [otelcol.processor.batch.default.input]
   }
 }
 
 otelcol.processor.batch "default" {
   output {
     logs = [otelcol.exporter.otlphttp.loki.input]
-    traces = [otelcol.exporter.debug.default.input]
   }
 }
 
@@ -24,8 +22,4 @@ otelcol.exporter.otlphttp "loki" {
   client {
     endpoint = "http://loki:3100/otlp"
   }
-}
-
-otelcol.exporter.debug "default" {
-  verbosity = "basic"
 }
