@@ -74,18 +74,19 @@ class LlmClient:
             raise LlmServiceError(f"Local LLM request failed: {error}") from error
 
         duration_ms = (time.perf_counter() - started_at) * 1000
+        response_content = getattr(response, "content", b"")
         logger.info(
             "llm.request.completed endpoint=%s status_code=%s duration_ms=%.2f response_bytes=%s",
             self.completion_url,
-            response.status_code,
+            getattr(response, "status_code", "unknown"),
             duration_ms,
-            len(response.content),
+            len(response_content),
         )
 
         try:
             data = response.json()
         except ValueError as error:
-            logger.exception("llm.response.invalid_json response_bytes=%s", len(response.content))
+            logger.exception("llm.response.invalid_json response_bytes=%s", len(response_content))
             raise LlmServiceError("Local LLM returned invalid JSON") from error
 
         if not isinstance(data, dict):
