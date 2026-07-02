@@ -26,9 +26,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/build/bin/llama-server /usr/local/bin/llama-server
+COPY --from=builder /src/build/bin/*.so* /usr/local/lib/
 COPY docker/llama.cpp/entrypoint.sh /usr/local/bin/llama-server-entrypoint
 
-RUN chmod +x /usr/local/bin/llama-server-entrypoint
+RUN chmod +x /usr/local/bin/llama-server-entrypoint \
+    && ldconfig
 
 EXPOSE 8080
 
