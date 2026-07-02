@@ -12,6 +12,7 @@ from app.config import (
     LLM_TEMPERATURE,
     LLM_TIMEOUT_SECONDS,
 )
+from app.observability_events import include_llm_payload, log_event
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +48,15 @@ class LlmClient:
             payload["json_schema"] = json_schema
 
         started_at = time.perf_counter()
-        logger.info(
-            "llm.request.started endpoint=%s prompt_length=%s has_json_schema=%s max_tokens=%s",
-            self.completion_url,
-            len(prompt),
-            json_schema is not None,
-            payload["n_predict"],
+        log_event(
+            "llm.request.started",
+            endpoint=self.completion_url,
+            prompt_length=len(prompt),
+            has_json_schema=json_schema is not None,
+            max_tokens=payload["n_predict"],
+            temperature=payload["temperature"],
+            stop=payload["stop"],
+            **include_llm_payload(prompt=prompt),
         )
 
         try:
@@ -65,39 +69,61 @@ class LlmClient:
                     response.raise_for_status()
         except httpx.HTTPError as error:
             duration_ms = (time.perf_counter() - started_at) * 1000
-            logger.exception(
-                "llm.request.failed endpoint=%s duration_ms=%.2f error_type=%s",
-                self.completion_url,
-                duration_ms,
-                type(error).__name__,
+            log_event(
+                "llm.request.failed",
+                level=logging.ERROR,
+                endpoint=self.completion_url,
+                duration_ms=round(duration_ms, 2),
+                error_type=type(error).__name__,
+                error=str(error),
             )
             raise LlmServiceError(f"Local LLM request failed: {error}") from error
 
         duration_ms = (time.perf_counter() - started_at) * 1000
         response_content = getattr(response, "content", b"")
-        logger.info(
-            "llm.request.completed endpoint=%s status_code=%s duration_ms=%.2f response_bytes=%s",
-            self.completion_url,
-            getattr(response, "status_code", "unknown"),
-            duration_ms,
-            len(response_content),
+        log_event(
+            "llm.request.completed",
+            endpoint=self.completion_url,
+            status_code=getattr(response, "status_code", "unknown"),
+            duration_ms=round(duration_ms, 2),
+            response_bytes=len(response_content),
         )
 
         try:
             data = response.json()
         except ValueError as error:
-            logger.exception("llm.response.invalid_json response_bytes=%s", len(response_content))
+            log_event(
+                "llm.response.invalid_json",
+                level=logging.ERROR,
+                response_bytes=len(response_content),
+                error_type=type(error).__name__,
+                error=str(error),
+            )
             raise LlmServiceError("Local LLM returned invalid JSON") from error
 
         if not isinstance(data, dict):
-            logger.error("llm.response.invalid_type response_type=%s", type(data).__name__)
+            log_event(
+                "llm.response.invalid_type",
+                level=logging.ERROR,
+                response_type=type(data).__name__,
+                **include_llm_payload(raw_response=str(data)),
+            )
             raise LlmServiceError("Local LLM returned an invalid response")
 
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
-            logger.error("llm.response.empty_content")
+            log_event(
+                "llm.response.empty_content",
+                level=logging.ERROR,
+                **include_llm_payload(raw_response=str(data)),
+            )
             raise LlmServiceError("Local LLM returned an empty answer")
 
+        log_event(
+            "llm.response.parsed",
+            content_length=len(content),
+            **include_llm_payload(raw_response=content),
+        )
         return content.strip()
 
 
