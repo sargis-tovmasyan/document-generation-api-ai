@@ -3,6 +3,14 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
+from app.observability_events import (
+    include_frontend_message,
+    include_response_body,
+    log_event,
+    summarize_created_invoice,
+    summarize_invoice_draft,
+    summarize_response,
+)
 from app.schemas import (
     AiInvoiceErrorResponse,
     AiInvoiceExtractRequest,
@@ -37,34 +45,45 @@ AI_PARSE_ERROR_MESSAGE = (
 
 
 async def _extract_draft_or_error(message: str) -> InvoiceDraft | JSONResponse:
-    logger.info("invoice.extract.llm.started message_length=%s", len(message))
+    log_event(
+        "invoice.extract.llm.started",
+        **include_frontend_message(message),
+    )
     try:
         draft = await ai_invoice_extractor.extract(message)
-    except LlmServiceError:
-        logger.exception("invoice.extract.llm_unavailable message_length=%s", len(message))
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "llm_unavailable",
-                "message": LLM_UNAVAILABLE_MESSAGE,
-            },
+    except LlmServiceError as error:
+        response_body = {
+            "status": "llm_unavailable",
+            "message": LLM_UNAVAILABLE_MESSAGE,
+        }
+        log_event(
+            "invoice.extract.llm_unavailable",
+            level=logging.WARNING,
+            error_type=type(error).__name__,
+            error=str(error),
+            **include_frontend_message(message),
+            **include_response_body(response_body),
         )
-    except AiInvoiceParseError:
-        logger.exception("invoice.extract.parse_error message_length=%s", len(message))
-        return JSONResponse(
-            status_code=422,
-            content={
-                "status": "ai_parse_error",
-                "message": AI_PARSE_ERROR_MESSAGE,
-            },
+        return JSONResponse(status_code=503, content=response_body)
+    except AiInvoiceParseError as error:
+        response_body = {
+            "status": "ai_parse_error",
+            "message": AI_PARSE_ERROR_MESSAGE,
+        }
+        log_event(
+            "invoice.extract.parse_error",
+            level=logging.WARNING,
+            error_type=type(error).__name__,
+            error=str(error),
+            **include_frontend_message(message),
+            **include_response_body(response_body),
         )
+        return JSONResponse(status_code=422, content=response_body)
 
-    logger.info(
-        "invoice.extract.llm.completed message_length=%s item_count=%s currency=%s template_language=%s",
-        len(message),
-        len(draft.items),
-        draft.currency,
-        draft.template_language,
+    log_event(
+        "invoice.extract.llm.completed",
+        **include_frontend_message(message),
+        draft=summarize_invoice_draft(draft),
     )
     return draft
 
@@ -80,23 +99,28 @@ async def _extract_draft_or_error(message: str) -> InvoiceDraft | JSONResponse:
 async def extract_invoice_draft(
     payload: AiInvoiceExtractRequest,
 ) -> AiInvoiceExtractResponse | JSONResponse:
-    logger.info("invoice.extract.started message_length=%s", len(payload.message))
+    log_event(
+        "invoice.extract.received",
+        **include_frontend_message(payload.message),
+    )
     draft = await _extract_draft_or_error(payload.message)
     if isinstance(draft, JSONResponse):
         return draft
 
     missing_fields = find_missing_invoice_fields(draft)
-    logger.info(
-        "invoice.extract.completed status=%s missing_fields=%s item_count=%s",
-        "missing_fields" if missing_fields else "ready",
-        missing_fields,
-        len(draft.items),
-    )
-    return AiInvoiceExtractResponse(
+    response = AiInvoiceExtractResponse(
         status="missing_fields" if missing_fields else "ready",
         draft=draft,
         missing_fields=missing_fields,
     )
+    log_event(
+        "invoice.extract.response.sent",
+        status=response.status,
+        missing_fields=missing_fields,
+        draft=summarize_invoice_draft(draft),
+        **include_response_body(summarize_response(response)),
+    )
+    return response
 
 
 @router.post(
@@ -111,37 +135,47 @@ async def extract_invoice_draft(
 async def generate_invoice_from_message(
     payload: AiInvoiceExtractRequest,
 ) -> InvoiceDraftCreatedResponse | InvoiceDraftMissingResponse | JSONResponse:
-    logger.info("invoice.generate.started message_length=%s", len(payload.message))
+    log_event(
+        "invoice.generate.received",
+        **include_frontend_message(payload.message),
+    )
     draft = await _extract_draft_or_error(payload.message)
     if isinstance(draft, JSONResponse):
         return draft
 
     missing_fields = find_missing_invoice_fields(draft)
     if missing_fields:
-        logger.info("invoice.generate.missing_fields missing_fields=%s", missing_fields)
-        return InvoiceDraftMissingResponse(
+        response = InvoiceDraftMissingResponse(
             status="missing_fields",
             missing_fields=missing_fields,
         )
+        log_event(
+            "invoice.generate.response.sent",
+            level=logging.WARNING,
+            status=response.status,
+            missing_fields=missing_fields,
+            draft=summarize_invoice_draft(draft),
+            **include_response_body(summarize_response(response)),
+        )
+        return response
 
     invoice = invoice_draft_to_create(draft)
     try:
         created_invoice = create_invoice(invoice)
     except InvoiceNumberConflictError as error:
-        logger.warning("invoice.generate.conflict invoice_number=%s", invoice.invoice_number)
+        log_event(
+            "invoice.generate.conflict",
+            level=logging.WARNING,
+            invoice_number=invoice.invoice_number,
+            error_type=type(error).__name__,
+            error=str(error),
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(error),
         ) from error
 
-    logger.info(
-        "invoice.generate.created invoice_id=%s invoice_number=%s total=%s currency=%s",
-        created_invoice["id"],
-        created_invoice["invoice_number"],
-        created_invoice["total"],
-        created_invoice["currency"],
-    )
-    return InvoiceDraftCreatedResponse(
+    response = InvoiceDraftCreatedResponse(
         status="created",
         invoice_id=created_invoice["id"],
         invoice_number=created_invoice["invoice_number"],
@@ -150,3 +184,10 @@ async def generate_invoice_from_message(
         currency=created_invoice["currency"],
         pdf_url=f"/invoices/{created_invoice['id']}/download",
     )
+    log_event(
+        "invoice.generate.response.sent",
+        status=response.status,
+        created_invoice=summarize_created_invoice(created_invoice),
+        **include_response_body(summarize_response(response)),
+    )
+    return response
