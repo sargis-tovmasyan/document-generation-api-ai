@@ -134,6 +134,14 @@ async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONRe
         logger.info("ai.chat.invoice.extract_fallback message_length=%s", len(message))
         return _fallback_invoice_draft(message)
     if isinstance(draft, InvoiceDraft):
+        if not _has_item_amount(message):
+            data = draft.model_dump()
+            data["items"] = [
+                item.model_dump()
+                for item in draft.items
+                if item.unit_price is not None
+            ]
+            draft = InvoiceDraft.model_validate(data)
         return _merge_fallback_invoice_draft(draft, _fallback_invoice_draft(message))
     return draft
 
