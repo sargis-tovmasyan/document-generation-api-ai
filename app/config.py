@@ -21,6 +21,33 @@ LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 SERVICE_NAME = os.getenv("SERVICE_NAME", "document-generation-api")
 DEPLOYMENT_ENVIRONMENT = os.getenv("DEPLOYMENT_ENVIRONMENT", "local")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+APP_LOG_DEBUG_PAYLOADS = os.getenv("APP_LOG_DEBUG_PAYLOADS", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+APP_LOG_FRONTEND_MESSAGES = os.getenv("APP_LOG_FRONTEND_MESSAGES", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+APP_LOG_LLM_RAW = os.getenv("APP_LOG_LLM_RAW", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+APP_LOG_RESPONSE_BODY = os.getenv("APP_LOG_RESPONSE_BODY", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+APP_LOG_MAX_FIELD_LENGTH = int(os.getenv("APP_LOG_MAX_FIELD_LENGTH", "2000"))
+
 OTEL_ENABLED = os.getenv("OTEL_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 OTEL_TRACES_ENABLED = os.getenv("OTEL_TRACES_ENABLED", "false").lower() in {
     "1",
