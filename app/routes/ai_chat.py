@@ -125,13 +125,14 @@ async def _answer_chat_message(message: str) -> str:
     log_event("ai.chat.answer.started", **include_frontend_message(message))
     prompt = (
         "You are a warm, friendly, professional document assistant. "
-        "Answer the user directly and concisely. Do not repeat yourself.\n"
+        "Answer the user directly in one or two short sentences. "
+        "For greetings, greet back and ask how you can help. Do not repeat yourself.\n"
         f"User: {message}\n"
         "Assistant:"
     )
     answer = await llm_client.complete_prompt(
         prompt,
-        max_tokens=96,
+        max_tokens=64,
         stop=["User:", "\nUser:", "\nAssistant:"],
     )
     answer = _remove_repeated_answer(answer)
