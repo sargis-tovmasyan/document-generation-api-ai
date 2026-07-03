@@ -125,13 +125,43 @@ async def _answer_chat_message(message: str) -> str:
     log_event("ai.chat.answer.started", **include_frontend_message(message))
     prompt = (
         "You are a warm, friendly, professional document assistant. "
-        "Answer the user directly and concisely.\n"
+        "Answer the user directly in one or two short sentences. "
+        "For greetings, greet back and ask how you can help. Do not repeat yourself.\n"
         f"User: {message}\n"
         "Assistant:"
     )
-    answer = await llm_client.complete_prompt(prompt)
+    answer = await llm_client.complete_prompt(
+        prompt,
+        max_tokens=64,
+        stop=["User:", "\nUser:", "\nAssistant:"],
+    )
+    answer = _remove_repeated_answer(answer)
     log_event("ai.chat.answer.completed", answer_length=len(answer))
     return answer
+
+
+def _remove_repeated_answer(answer: str) -> str:
+    normalized = answer.strip()
+    if not normalized:
+        return normalized
+
+    midpoint = len(normalized) // 2
+    left = normalized[:midpoint].strip()
+    right = normalized[midpoint:].strip()
+    if len(normalized) % 2 == 0 and left == right:
+        return left
+
+    sentences = re.findall(r"[^.!?]+[.!?]+(?:\s|$)", normalized)
+    if len(sentences) % 2 != 0:
+        return normalized
+
+    half = len(sentences) // 2
+    first_half = [sentence.strip() for sentence in sentences[:half]]
+    second_half = [sentence.strip() for sentence in sentences[half:]]
+    if first_half == second_half:
+        return " ".join(first_half)
+
+    return normalized
 
 
 def _invoice_list_message(invoice_count: int) -> str:

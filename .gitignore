@@ -5,5 +5,7 @@ __pycache__/
 *.py[cod]
 data/*
 generated/*
+models/*
 !data/.gitkeep
 !generated/invoices/.gitkeep
+!models/.gitkeep
