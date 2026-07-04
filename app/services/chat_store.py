@@ -194,7 +194,7 @@ def list_chat_messages(chat_id: str, *, limit: int = 50) -> list[dict[str, Any]]
             SELECT *
             FROM chat_messages
             WHERE chat_id = ?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, rowid DESC
             LIMIT ?
             """,
             (chat_id, limit),
