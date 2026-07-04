@@ -33,6 +33,7 @@ from app.services.invoice_service import (
     list_invoices,
     reset_invoice_store,
 )
+from app.services.chat_store import clear_document_scope, get_session_state, upsert_session_state
 from app.services.llm_client import LlmServiceError, llm_client
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,11 @@ async def complete_invoice_draft(
         currency=created_invoice["currency"],
         pdf_url=f"/invoices/{created_invoice['id']}/download",
     )
+    if payload.chat_id:
+        session_state = get_session_state(payload.chat_id)
+        session_state["last_document_id"] = created_invoice["id"]
+        upsert_session_state(payload.chat_id, session_state)
+        clear_document_scope(payload.chat_id)
     log_event(
         "invoice.draft.complete.response.sent",
         status=response.status,

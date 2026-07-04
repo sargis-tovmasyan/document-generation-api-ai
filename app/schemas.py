@@ -244,6 +244,7 @@ class AiChatErrorResponse(BaseModel):
 
 class InvoiceDraftCompleteRequest(BaseModel):
     draft: InvoiceDraft
+    chat_id: str | None = None
 
 
 class InvoiceDraftMissingResponse(BaseModel):

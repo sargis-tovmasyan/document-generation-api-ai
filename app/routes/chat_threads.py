@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field
 from app.services.chat_schema import ensure_chat_schema
 from app.services.chat_store import (
     DEFAULT_USER_ID,
+    clear_document_scope,
     create_chat_thread,
     get_chat_thread,
+    get_session_state,
     get_user_ui_settings,
     list_chat_messages,
     list_chat_threads,
@@ -67,6 +69,7 @@ def get_thread(chat_id: str) -> dict[str, Any]:
     if thread is None:
         raise HTTPException(status_code=404, detail="Chat thread not found")
     thread["messages"] = list_chat_messages(chat_id)
+    thread["session_memory"] = get_session_state(chat_id)
     return thread
 
 
@@ -96,6 +99,23 @@ def remove_thread(chat_id: str) -> dict[str, str]:
 def get_thread_messages(chat_id: str, limit: int = 100) -> list[dict[str, Any]]:
     ensure_chat_schema()
     return list_chat_messages(chat_id, limit=limit)
+
+
+@router.get("/chat-threads/{chat_id}/session-memory")
+def get_thread_session_memory(chat_id: str) -> dict[str, Any]:
+    ensure_chat_schema()
+    if get_chat_thread(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat thread not found")
+    return get_session_state(chat_id)
+
+
+@router.delete("/chat-threads/{chat_id}/session-memory/document-scope")
+def clear_thread_document_scope(chat_id: str) -> dict[str, str]:
+    ensure_chat_schema()
+    if get_chat_thread(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat thread not found")
+    clear_document_scope(chat_id)
+    return {"status": "cleared"}
 
 
 @router.get("/user-ui-settings")

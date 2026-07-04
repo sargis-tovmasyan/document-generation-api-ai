@@ -61,6 +61,8 @@ async def extract_and_store_learning(
     chat_id: str,
     recent_messages: list[dict[str, Any]],
     session_state: dict[str, Any],
+    business_profile_id: str | None = None,
+    client_id: str | None = None,
 ) -> dict[str, int]:
     if not recent_messages:
         return {"facts_saved": 0, "skills_saved": 0}
@@ -94,6 +96,8 @@ async def extract_and_store_learning(
             content=fact.content,
             structured=fact.structured,
             confidence=fact.confidence,
+            business_profile_id=business_profile_id,
+            client_id=client_id,
         )
         facts_saved += 1
 
@@ -109,6 +113,8 @@ async def extract_and_store_learning(
             required_fields=skill.required_fields,
             confidence=skill.confidence,
             scope=skill.scope,
+            business_profile_id=business_profile_id,
+            client_id=client_id,
         )
         skills_saved += 1
 
