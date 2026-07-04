@@ -141,7 +141,7 @@ async def _answer_chat_message_with_memory(
     return _remove_repeated_answer(answer)
 
 
-@router.post("")
+@router.post("", response_model=None)
 async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
     ensure_chat_schema()
     thread = ensure_chat_thread(
