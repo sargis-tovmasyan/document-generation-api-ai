@@ -4,16 +4,20 @@ from unittest.mock import AsyncMock, patch
 
 from app.routes.invoices import complete_invoice_draft
 from app.schemas import InvoiceDraftCompleteRequest
+from app.services.auth_security import CurrentUser
 
 
 class InvoiceDraftRouteTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.current_user = CurrentUser({"id": "user_test", "email": "test@example.com"})
+
     async def test_returns_missing_fields_without_creating_invoice(self) -> None:
         payload = InvoiceDraftCompleteRequest.model_validate(
             {"draft": {"client": {"name": "Alex"}}}
         )
 
         with patch("app.routes.invoices.create_invoice") as create_invoice:
-            response = await complete_invoice_draft(payload)
+            response = await complete_invoice_draft(payload, current_user=self.current_user)
 
         self.assertEqual(response.status, "missing_fields")
         self.assertIn("invoice_number", response.missing_fields)
@@ -50,7 +54,7 @@ class InvoiceDraftRouteTests(unittest.IsolatedAsyncioTestCase):
                 "pdf_url": "/generated/invoices/file.pdf",
             },
         ):
-            response = await complete_invoice_draft(payload)
+            response = await complete_invoice_draft(payload, current_user=self.current_user)
 
         self.assertEqual(response.status, "created")
         self.assertEqual(response.invoice_id, 7)
@@ -94,7 +98,7 @@ class InvoiceDraftRouteTests(unittest.IsolatedAsyncioTestCase):
                 },
             ) as create_invoice,
         ):
-            response = await complete_invoice_draft(payload)
+            response = await complete_invoice_draft(payload, current_user=self.current_user)
 
         complete_prompt.assert_awaited_once()
         created_invoice = create_invoice.call_args.args[0]
