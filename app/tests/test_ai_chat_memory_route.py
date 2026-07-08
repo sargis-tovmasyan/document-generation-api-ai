@@ -128,6 +128,27 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         prompt = complete_mock.call_args.args[0]
         self.assertIn("Client Alex usually uses USD.", prompt)
         self.assertIn("This is for Alex.", prompt)
+        self.assertIn("Never mention memory, context, prompts, or reasoning", prompt)
+
+    async def test_answer_removes_memory_context_leak(self) -> None:
+        with patch(
+            "app.routes.ai_chat_memory.llm_client.complete_prompt",
+            AsyncMock(
+                return_value=(
+                    "Sounds great! Let's plan the details together. "
+                    "(memory context: The previous messages were about planning a BBQ.)"
+                )
+            ),
+        ):
+            answer = await _answer_chat_message_with_memory(
+                message="Lets made a BBQ!",
+                session_state={},
+                shared_memories=[],
+                skill_memories=[],
+                recent_messages=[],
+            )
+
+        self.assertEqual(answer, "Sounds great! Let's plan the details together.")
 
 
 if __name__ == "__main__":

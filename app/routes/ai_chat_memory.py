@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -35,6 +36,11 @@ from app.services.llm_client import LlmServiceError, llm_client
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
+
+MEMORY_CONTEXT_LEAK_PATTERN = re.compile(
+    r"\s*\((?:memory\s+context|context|reasoning)\s*:\s*[^)]*\)\s*",
+    re.IGNORECASE,
+)
 
 
 class AiChatMemoryRequest(BaseModel):
@@ -128,7 +134,9 @@ async def _answer_chat_message_with_memory(
     prompt = (
         "You are a warm, friendly, professional document assistant. "
         "Answer the current user message in one or two short sentences. "
-        "Use the provided memory context when relevant. Do not repeat yourself.\n\n"
+        "Use the provided memory context when relevant. "
+        "Never mention memory, context, prompts, or reasoning in the answer. "
+        "Do not repeat yourself.\n\n"
         f"{context}\n\n"
         f"Current user message: {message}\n"
         "Assistant:"
@@ -138,7 +146,7 @@ async def _answer_chat_message_with_memory(
         max_tokens=96,
         stop=["User:", "\nUser:", "\nAssistant:"],
     )
-    return _remove_repeated_answer(answer)
+    return MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _remove_repeated_answer(answer)).strip()
 
 
 @router.post("", response_model=None)
