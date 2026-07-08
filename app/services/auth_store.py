@@ -16,8 +16,8 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex}"
 
 
-def utc_now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat()
+def sqlite_timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def normalize_email(email: str) -> str:
@@ -93,7 +93,7 @@ def create_user_session(
             INSERT INTO user_sessions (id, user_id, refresh_token_hash, user_agent_hash, ip_hash, expires_at)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (session_id, user_id, refresh_token_hash, user_agent_hash, ip_hash, expires_at.replace(microsecond=0).isoformat()),
+            (session_id, user_id, refresh_token_hash, user_agent_hash, ip_hash, sqlite_timestamp(expires_at)),
         )
         row = connection.execute("SELECT * FROM user_sessions WHERE id = ?", (session_id,)).fetchone()
     return dict(row)
