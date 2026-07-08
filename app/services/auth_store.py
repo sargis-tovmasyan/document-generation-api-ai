@@ -78,6 +78,42 @@ def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     return row_to_user(row) if row is not None else None
 
 
+def update_user_email(*, user_id: str, email: str) -> dict[str, Any]:
+    normalized_email = normalize_email(email)
+    with database_connection() as connection:
+        existing = connection.execute(
+            "SELECT id FROM users WHERE email_normalized = ? AND id <> ?",
+            (normalized_email, user_id),
+        ).fetchone()
+        if existing is not None:
+            raise DuplicateEmailError("A user with this email already exists")
+
+        connection.execute(
+            """
+            UPDATE users
+            SET email = ?, email_normalized = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND disabled_at IS NULL
+            """,
+            (email.strip(), normalized_email, user_id),
+        )
+        row = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row_to_user(row)
+
+
+def update_user_password(*, user_id: str, password_hash: str) -> dict[str, Any]:
+    with database_connection() as connection:
+        connection.execute(
+            """
+            UPDATE users
+            SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND disabled_at IS NULL
+            """,
+            (password_hash, user_id),
+        )
+        row = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row_to_user(row)
+
+
 def create_user_session(
     *,
     user_id: str,
@@ -143,4 +179,18 @@ def revoke_session_by_refresh_hash(refresh_token_hash: str) -> None:
             WHERE refresh_token_hash = ? AND revoked_at IS NULL
             """,
             (refresh_token_hash,),
+        )
+
+
+def revoke_other_sessions(*, user_id: str, keep_session_id: str | None) -> None:
+    where = ["user_id = ?", "revoked_at IS NULL"]
+    params: list[Any] = [user_id]
+    if keep_session_id is not None:
+        where.append("id <> ?")
+        params.append(keep_session_id)
+
+    with database_connection() as connection:
+        connection.execute(
+            f"UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE {' AND '.join(where)}",
+            params,
         )
