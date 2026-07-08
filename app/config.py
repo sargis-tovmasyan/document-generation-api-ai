@@ -22,6 +22,14 @@ SERVICE_NAME = os.getenv("SERVICE_NAME", "document-generation-api")
 DEPLOYMENT_ENVIRONMENT = os.getenv("DEPLOYMENT_ENVIRONMENT", "local")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
+AUTH_JWT_SECRET = os.getenv("AUTH_JWT_SECRET", "dev-only-change-me-minimum-32-characters")
+AUTH_JWT_ALGORITHM = os.getenv("AUTH_JWT_ALGORITHM", "HS256")
+AUTH_ISSUER = os.getenv("AUTH_ISSUER", "document-generation-api")
+AUTH_ACCESS_TOKEN_AUDIENCE = os.getenv("AUTH_ACCESS_TOKEN_AUDIENCE", "document-generation-api")
+AUTH_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("AUTH_ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+AUTH_REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("AUTH_REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "document_api_refresh_token")
+
 APP_LOG_DEBUG_PAYLOADS = os.getenv("APP_LOG_DEBUG_PAYLOADS", "false").lower() in {
     "1",
     "true",
