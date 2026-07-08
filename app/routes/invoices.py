@@ -1,7 +1,7 @@
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
@@ -22,6 +22,7 @@ from app.schemas import (
     InvoiceDraftMissingResponse,
     InvoiceListItem,
 )
+from app.services.auth_security import CurrentUser, get_current_user
 from app.services.invoice_draft_validator import (
     find_missing_invoice_fields,
     invoice_draft_to_create,
@@ -33,7 +34,7 @@ from app.services.invoice_service import (
     list_invoices,
     reset_invoice_store,
 )
-from app.services.chat_store import clear_document_scope, get_session_state, upsert_session_state
+from app.services.chat_store import clear_document_scope, get_chat_thread, get_session_state, upsert_session_state
 from app.services.llm_client import LlmServiceError, llm_client
 
 logger = logging.getLogger(__name__)
@@ -136,11 +137,15 @@ async def _normalize_raw_invoice_items(draft: InvoiceDraft) -> InvoiceDraft:
 )
 async def complete_invoice_draft(
     payload: InvoiceDraftCompleteRequest,
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> InvoiceDraftCreatedResponse | InvoiceDraftMissingResponse:
     log_event(
         "invoice.draft.complete.received",
         draft=summarize_invoice_draft(payload.draft),
     )
+    if payload.chat_id and get_chat_thread(payload.chat_id, user_id=current_user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat thread not found")
+
     draft = await _normalize_raw_invoice_items(payload.draft)
     missing_fields = find_missing_invoice_fields(draft)
     log_event(
