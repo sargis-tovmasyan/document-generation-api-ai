@@ -51,11 +51,17 @@ def create_chat_thread(
     return _row_to_thread(row)
 
 
-def get_chat_thread(chat_id: str) -> dict[str, Any] | None:
+def get_chat_thread(chat_id: str, *, user_id: str | None = None) -> dict[str, Any] | None:
+    where = ["id = ?", "deleted_at IS NULL"]
+    params: list[Any] = [chat_id]
+    if user_id is not None:
+        where.append("user_id = ?")
+        params.append(user_id)
+
     with database_connection() as connection:
         row = connection.execute(
-            "SELECT * FROM chat_threads WHERE id = ? AND deleted_at IS NULL",
-            (chat_id,),
+            f"SELECT * FROM chat_threads WHERE {' AND '.join(where)}",
+            params,
         ).fetchone()
     return _row_to_thread(row) if row is not None else None
 
@@ -69,7 +75,7 @@ def ensure_chat_thread(
     title: str | None = None,
 ) -> dict[str, Any]:
     if chat_id:
-        existing = get_chat_thread(chat_id)
+        existing = get_chat_thread(chat_id, user_id=user_id)
         if existing is not None:
             return existing
 
@@ -114,6 +120,7 @@ def list_chat_threads(
 def update_chat_thread(
     chat_id: str,
     *,
+    user_id: str | None = None,
     title: str | None = None,
     archived: bool | None = None,
     pinned: bool | None = None,
@@ -135,26 +142,44 @@ def update_chat_thread(
         assignments.append("ui_order = ?")
         params.append(ui_order)
 
+    where = ["id = ?", "deleted_at IS NULL"]
     params.append(chat_id)
+    if user_id is not None:
+        where.append("user_id = ?")
+        params.append(user_id)
 
     with database_connection() as connection:
         connection.execute(
-            f"UPDATE chat_threads SET {', '.join(assignments)} WHERE id = ? AND deleted_at IS NULL",
+            f"UPDATE chat_threads SET {', '.join(assignments)} WHERE {' AND '.join(where)}",
             params,
         )
-        row = connection.execute("SELECT * FROM chat_threads WHERE id = ?", (chat_id,)).fetchone()
-    return _row_to_thread(row) if row is not None else None
+        row = connection.execute(
+            "SELECT * FROM chat_threads WHERE id = ? AND deleted_at IS NULL",
+            (chat_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    result = _row_to_thread(row)
+    if user_id is not None and result.get("user_id") != user_id:
+        return None
+    return result
 
 
-def soft_delete_chat_thread(chat_id: str) -> None:
+def soft_delete_chat_thread(chat_id: str, *, user_id: str | None = None) -> None:
+    where = ["id = ?", "deleted_at IS NULL"]
+    params: list[Any] = [chat_id]
+    if user_id is not None:
+        where.append("user_id = ?")
+        params.append(user_id)
+
     with database_connection() as connection:
         connection.execute(
-            """
+            f"""
             UPDATE chat_threads
             SET deleted_at = CURRENT_TIMESTAMP, archived_at = NULL, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ? AND deleted_at IS NULL
+            WHERE {' AND '.join(where)}
             """,
-            (chat_id,),
+            params,
         )
 
 
