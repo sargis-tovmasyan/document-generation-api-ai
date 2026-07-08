@@ -26,10 +26,13 @@ from app.services.auth_store import (
     get_user_by_email,
     get_user_by_id,
     public_user,
+    revoke_other_sessions,
     revoke_session,
     revoke_session_by_refresh_hash,
-    touch_session,
+    update_user_email,
+    update_user_password,
 )
+from app.services.password_policy import PasswordPolicyError, validate_password_policy
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -45,11 +48,28 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class UpdateEmailRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_email: EmailStr
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
+
+
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
     user: dict[str, Any]
+
+
+def _validate_password_or_422(password: str) -> None:
+    try:
+        validate_password_policy(password)
+    except PasswordPolicyError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=error.errors) from error
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
@@ -83,9 +103,16 @@ def _issue_auth_response(request: Request, response: Response, user: dict[str, A
     )
 
 
+def _current_refresh_session(refresh_token_cookie: str | None) -> dict[str, Any] | None:
+    if not refresh_token_cookie:
+        return None
+    return get_active_session_by_refresh_hash(hash_refresh_token(refresh_token_cookie))
+
+
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, request: Request, response: Response) -> AuthResponse:
     ensure_auth_schema()
+    _validate_password_or_422(payload.password)
     try:
         user = create_user(
             email=str(payload.email),
@@ -144,3 +171,40 @@ def logout(
 @router.get("/me")
 def me(current_user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:
     return public_user(current_user)
+
+
+@router.patch("/me/email")
+def update_email(
+    payload: UpdateEmailRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    ensure_auth_schema()
+    user = get_user_by_id(current_user.id)
+    if user is None or not verify_password(payload.current_password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is invalid")
+
+    try:
+        updated_user = update_user_email(user_id=current_user.id, email=str(payload.new_email))
+    except DuplicateEmailError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Could not update email") from error
+    return public_user(updated_user)
+
+
+@router.patch("/me/password")
+def change_password(
+    payload: ChangePasswordRequest,
+    refresh_token_cookie: str | None = Cookie(default=None, alias=AUTH_COOKIE_NAME),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str]:
+    ensure_auth_schema()
+    user = get_user_by_id(current_user.id)
+    if user is None or not verify_password(payload.current_password, user["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is invalid")
+
+    _validate_password_or_422(payload.new_password)
+    update_user_password(user_id=current_user.id, password_hash=hash_password(payload.new_password))
+
+    current_session = _current_refresh_session(refresh_token_cookie)
+    keep_session_id = current_session["id"] if current_session and current_session["user_id"] == current_user.id else None
+    revoke_other_sessions(user_id=current_user.id, keep_session_id=keep_session_id)
+    return {"status": "password_changed"}
