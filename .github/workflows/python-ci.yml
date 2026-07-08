@@ -19,7 +19,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        run: |
+          git init --quiet .
+          git remote add origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          git fetch --quiet --depth=1 origin $GITHUB_SHA
+          git checkout --quiet FETCH_HEAD
 
       - name: Set up Python
         uses: actions/setup-python@v5
