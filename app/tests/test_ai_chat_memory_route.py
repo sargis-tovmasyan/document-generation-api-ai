@@ -111,6 +111,24 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(get_session_state(chat_id)["last_document_id"], 42)
         self.assertNotIn("draft", get_session_state(chat_id))
 
+    async def test_non_invoice_message_does_not_call_invoice_endpoint(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="list_invoices")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory._answer_chat_message_with_memory",
+                AsyncMock(return_value="Sounds great. What details should we plan?"),
+            ),
+            patch("app.routes.ai_chat_memory.list_invoices") as list_invoices_mock,
+            patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+        ):
+            response = await chat(AiChatMemoryRequest(message="Lets made a BBQ!"))
+
+        self.assertEqual(response["status"], "answer")
+        list_invoices_mock.assert_not_called()
+
     async def test_answer_prompt_uses_memory_context(self) -> None:
         with patch(
             "app.routes.ai_chat_memory.llm_client.complete_prompt",

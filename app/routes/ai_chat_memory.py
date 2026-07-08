@@ -13,6 +13,7 @@ from app.routes.ai_chat import (
     CHAT_PARSE_ERROR_MESSAGE,
     _decide_chat_action,
     _extract_invoice_draft_for_chat,
+    _guard_chat_decision,
     _invoice_list_message,
     _remove_repeated_answer,
 )
@@ -185,6 +186,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
         return JSONResponse(status_code=422, content=response_body)
 
+    decision = _guard_chat_decision(payload.message, decision)
     action = decision.action
     if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
         action = "create_invoice"
