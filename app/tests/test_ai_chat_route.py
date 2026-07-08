@@ -79,6 +79,23 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.invoices, [])
         complete_mock.assert_called_once()
 
+    async def test_non_invoice_message_does_not_call_invoice_endpoint(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="list_invoices")),
+            ),
+            patch(
+                "app.routes.ai_chat._answer_chat_message",
+                AsyncMock(return_value="Sounds great. What details should we plan?"),
+            ),
+            patch("app.routes.ai_chat.list_invoices") as list_invoices_mock,
+        ):
+            response = await chat(AiChatRequest(message="Lets made a BBQ!"))
+
+        self.assertEqual(response.status, "answer")
+        list_invoices_mock.assert_not_called()
+
     async def test_creates_invoice_when_llm_selects_create_invoice(self) -> None:
         draft = InvoiceDraft.model_validate(
             {

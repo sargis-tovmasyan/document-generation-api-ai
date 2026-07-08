@@ -71,6 +71,10 @@ CHAT_LLM_UNAVAILABLE_MESSAGE = (
 CHAT_PARSE_ERROR_MESSAGE = (
     "I could not decide how to handle that request. Please try rephrasing it."
 )
+INVOICE_REQUEST_PATTERN = re.compile(
+    r"\b(?:invoice|invoices|bill|billing|receipt|document|documents)\b",
+    re.IGNORECASE,
+)
 
 
 class ChatDecision(BaseModel):
@@ -111,6 +115,14 @@ async def _decide_chat_action(message: str) -> ChatDecision:
         **include_frontend_message(message),
     )
     return decision
+
+
+def _guard_chat_decision(message: str, decision: ChatDecision) -> ChatDecision:
+    if decision.action == "answer":
+        return decision
+    if INVOICE_REQUEST_PATTERN.search(message):
+        return decision
+    return ChatDecision(action="answer", message="")
 
 
 def _load_chat_decision_from_text(content: str) -> ChatDecision:
@@ -359,6 +371,8 @@ async def chat(
             **include_response_body(response_body),
         )
         return JSONResponse(status_code=422, content=response_body)
+
+    decision = _guard_chat_decision(payload.message, decision)
 
     if decision.action == "answer":
         try:
