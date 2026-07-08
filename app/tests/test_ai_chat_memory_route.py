@@ -8,6 +8,7 @@ from app.routes.ai_chat import ChatDecision
 from app.routes.ai_chat_memory import AiChatMemoryRequest, _answer_chat_message_with_memory, chat
 from app.schemas import InvoiceDraft
 from app.services import chat_schema, knowledge_store
+from app.services.auth_security import CurrentUser
 from app.services.chat_store import get_chat_thread, get_session_state, list_chat_messages
 
 
@@ -15,6 +16,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
+        self.current_user = CurrentUser({"id": "user_test", "email": "test@example.com"})
 
         import app.database as database
 
@@ -36,7 +38,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
-            response = await chat(AiChatMemoryRequest(message="Hi"))
+            response = await chat(AiChatMemoryRequest(message="Hi"), current_user=self.current_user)
 
         self.assertEqual(response["status"], "answer")
         self.assertIn("chat_id", response)
@@ -73,7 +75,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
-            first_response = await chat(AiChatMemoryRequest(message="Create invoice INV-010 for Alex"))
+            first_response = await chat(
+                AiChatMemoryRequest(message="Create invoice INV-010 for Alex"),
+                current_user=self.current_user,
+            )
 
         chat_id = first_response["chat_id"]
         self.assertEqual(first_response["status"], "missing_fields")
@@ -101,7 +106,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             second_response = await chat(
-                AiChatMemoryRequest(chat_id=chat_id, message="Issue date is 2026-07-04, USD, Design 300")
+                AiChatMemoryRequest(chat_id=chat_id, message="Issue date is 2026-07-04, USD, Design 300"),
+                current_user=self.current_user,
             )
 
         self.assertEqual(second_response["status"], "created")
@@ -124,7 +130,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             patch("app.routes.ai_chat_memory.list_invoices") as list_invoices_mock,
             patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
-            response = await chat(AiChatMemoryRequest(message="Lets made a BBQ!"))
+            response = await chat(
+                AiChatMemoryRequest(message="Lets made a BBQ!"),
+                current_user=self.current_user,
+            )
 
         self.assertEqual(response["status"], "answer")
         list_invoices_mock.assert_not_called()
