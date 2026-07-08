@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.services.auth_security import CurrentUser, get_current_user
 from app.services.chat_schema import ensure_chat_schema
 from app.services.chat_store import (
-    DEFAULT_USER_ID,
     clear_document_scope,
     create_chat_thread,
     get_chat_thread,
@@ -24,7 +24,6 @@ router = APIRouter(tags=["chat-threads"])
 
 
 class ChatThreadCreateRequest(BaseModel):
-    user_id: str = Field(default=DEFAULT_USER_ID, min_length=1, max_length=100)
     business_profile_id: str | None = Field(default=None, max_length=100)
     client_id: str | None = Field(default=None, max_length=100)
     title: str | None = Field(default=None, max_length=200)
@@ -38,15 +37,17 @@ class ChatThreadUpdateRequest(BaseModel):
 
 
 class UserSettingsUpdateRequest(BaseModel):
-    user_id: str = Field(default=DEFAULT_USER_ID, min_length=1, max_length=100)
     settings: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/chat-threads")
-def create_thread(payload: ChatThreadCreateRequest) -> dict[str, Any]:
+def create_thread(
+    payload: ChatThreadCreateRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
     ensure_chat_schema()
     return create_chat_thread(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         business_profile_id=payload.business_profile_id,
         client_id=payload.client_id,
         title=payload.title,
@@ -55,17 +56,20 @@ def create_thread(payload: ChatThreadCreateRequest) -> dict[str, Any]:
 
 @router.get("/chat-threads")
 def list_threads(
-    user_id: str = DEFAULT_USER_ID,
     status: Literal["active", "archived", "deleted"] = "active",
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     ensure_chat_schema()
-    return list_chat_threads(user_id=user_id, status=status)
+    return list_chat_threads(user_id=current_user.id, status=status)
 
 
 @router.get("/chat-threads/{chat_id}")
-def get_thread(chat_id: str) -> dict[str, Any]:
+def get_thread(
+    chat_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
     ensure_chat_schema()
-    thread = get_chat_thread(chat_id)
+    thread = get_chat_thread(chat_id, user_id=current_user.id)
     if thread is None:
         raise HTTPException(status_code=404, detail="Chat thread not found")
     thread["messages"] = list_chat_messages(chat_id)
@@ -74,10 +78,15 @@ def get_thread(chat_id: str) -> dict[str, Any]:
 
 
 @router.patch("/chat-threads/{chat_id}")
-def patch_thread(chat_id: str, payload: ChatThreadUpdateRequest) -> dict[str, Any]:
+def patch_thread(
+    chat_id: str,
+    payload: ChatThreadUpdateRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
     ensure_chat_schema()
     thread = update_chat_thread(
         chat_id,
+        user_id=current_user.id,
         title=payload.title,
         archived=payload.archived,
         pinned=payload.pinned,
@@ -89,42 +98,62 @@ def patch_thread(chat_id: str, payload: ChatThreadUpdateRequest) -> dict[str, An
 
 
 @router.delete("/chat-threads/{chat_id}")
-def remove_thread(chat_id: str) -> dict[str, str]:
+def remove_thread(
+    chat_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str]:
     ensure_chat_schema()
-    soft_delete_chat_thread(chat_id)
+    if get_chat_thread(chat_id, user_id=current_user.id) is None:
+        raise HTTPException(status_code=404, detail="Chat thread not found")
+    soft_delete_chat_thread(chat_id, user_id=current_user.id)
     return {"status": "deleted"}
 
 
 @router.get("/chat-threads/{chat_id}/messages")
-def get_thread_messages(chat_id: str, limit: int = 100) -> list[dict[str, Any]]:
+def get_thread_messages(
+    chat_id: str,
+    limit: int = 100,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[dict[str, Any]]:
     ensure_chat_schema()
+    if get_chat_thread(chat_id, user_id=current_user.id) is None:
+        raise HTTPException(status_code=404, detail="Chat thread not found")
     return list_chat_messages(chat_id, limit=limit)
 
 
 @router.get("/chat-threads/{chat_id}/session-memory")
-def get_thread_session_memory(chat_id: str) -> dict[str, Any]:
+def get_thread_session_memory(
+    chat_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
     ensure_chat_schema()
-    if get_chat_thread(chat_id) is None:
+    if get_chat_thread(chat_id, user_id=current_user.id) is None:
         raise HTTPException(status_code=404, detail="Chat thread not found")
     return get_session_state(chat_id)
 
 
 @router.delete("/chat-threads/{chat_id}/session-memory/document-scope")
-def clear_thread_document_scope(chat_id: str) -> dict[str, str]:
+def clear_thread_document_scope(
+    chat_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str]:
     ensure_chat_schema()
-    if get_chat_thread(chat_id) is None:
+    if get_chat_thread(chat_id, user_id=current_user.id) is None:
         raise HTTPException(status_code=404, detail="Chat thread not found")
     clear_document_scope(chat_id)
     return {"status": "cleared"}
 
 
 @router.get("/user-ui-settings")
-def read_user_settings(user_id: str = DEFAULT_USER_ID) -> dict[str, Any]:
+def read_user_settings(current_user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:
     ensure_chat_schema()
-    return get_user_ui_settings(user_id)
+    return get_user_ui_settings(current_user.id)
 
 
 @router.patch("/user-ui-settings")
-def patch_user_settings(payload: UserSettingsUpdateRequest) -> dict[str, Any]:
+def patch_user_settings(
+    payload: UserSettingsUpdateRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
     ensure_chat_schema()
-    return update_user_ui_settings(payload.user_id, payload.settings)
+    return update_user_ui_settings(current_user.id, payload.settings)
