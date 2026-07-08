@@ -4,7 +4,7 @@ import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
@@ -18,9 +18,9 @@ from app.routes.ai_chat import (
     _remove_repeated_answer,
 )
 from app.schemas import InvoiceDraft
+from app.services.auth_security import CurrentUser, get_current_user
 from app.services.chat_schema import ensure_chat_schema
 from app.services.chat_store import (
-    DEFAULT_USER_ID,
     append_chat_message,
     clear_document_scope,
     ensure_chat_thread,
@@ -47,7 +47,6 @@ MEMORY_CONTEXT_LEAK_PATTERN = re.compile(
 class AiChatMemoryRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     chat_id: str | None = Field(default=None, max_length=100)
-    user_id: str = Field(default=DEFAULT_USER_ID, min_length=1, max_length=100)
     tenant_id: str | None = Field(default=None, max_length=100)
     business_profile_id: str | None = Field(default=None, max_length=100)
     client_id: str | None = Field(default=None, max_length=100)
@@ -151,11 +150,14 @@ async def _answer_chat_message_with_memory(
 
 
 @router.post("", response_model=None)
-async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
+async def chat(
+    payload: AiChatMemoryRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any] | JSONResponse:
     ensure_chat_schema()
     thread = ensure_chat_thread(
         chat_id=payload.chat_id,
-        user_id=payload.user_id,
+        user_id=current_user.id,
         business_profile_id=payload.business_profile_id,
         client_id=payload.client_id,
         title=payload.message[:80],
@@ -165,12 +167,12 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
     session_state = get_session_state(chat_id)
     recent_messages = list_chat_messages(chat_id, limit=12)
     shared_memories = list_shared_memories(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         business_profile_id=payload.business_profile_id,
         client_id=payload.client_id,
     )
     skill_memories = list_skill_memories(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         business_profile_id=payload.business_profile_id,
         client_id=payload.client_id,
     )
@@ -207,7 +209,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
         await _learn_from_turn(
-            user_id=payload.user_id,
+            user_id=current_user.id,
             chat_id=chat_id,
             session_state=session_state,
             business_profile_id=payload.business_profile_id,
@@ -225,7 +227,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         }
         append_chat_message(chat_id=chat_id, role="assistant", content=response["message"], metadata=response)
         await _learn_from_turn(
-            user_id=payload.user_id,
+            user_id=current_user.id,
             chat_id=chat_id,
             session_state=session_state,
             business_profile_id=payload.business_profile_id,
@@ -257,7 +259,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         }
         append_chat_message(chat_id=chat_id, role="assistant", content="I need a few more details to complete your invoice.", metadata=response)
         await _learn_from_turn(
-            user_id=payload.user_id,
+            user_id=current_user.id,
             chat_id=chat_id,
             session_state=session_state,
             business_profile_id=payload.business_profile_id,
@@ -288,7 +290,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
     }
     append_chat_message(chat_id=chat_id, role="assistant", content=f"Invoice created — {created_invoice['invoice_number']}", metadata=response)
     await _learn_from_turn(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         chat_id=chat_id,
         session_state=session_state,
         business_profile_id=payload.business_profile_id,
