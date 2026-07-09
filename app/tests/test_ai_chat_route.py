@@ -75,6 +75,11 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
             "I'm glad to hear that! I'll help you plan your BBQ. What kind of BBQ are you looking for?",
         )
 
+    def test_clean_chat_answer_removes_stray_model_tag(self) -> None:
+        answer = _clean_chat_answer("Hi\n<ing>")
+
+        self.assertEqual(answer, "Hi")
+
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(
             "app.routes.ai_chat.llm_client.complete_prompt",

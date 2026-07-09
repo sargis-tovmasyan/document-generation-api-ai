@@ -82,6 +82,7 @@ ANSWER_META_TAIL_PATTERN = re.compile(
 THINK_CLOSE_PATTERN = re.compile(r"</think>", re.IGNORECASE)
 THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
 THINK_TAG_PATTERN = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
+STRAY_TAG_PATTERN = re.compile(r"</?[a-z][a-z0-9_-]*\b[^>]*>", re.IGNORECASE)
 
 
 class ChatDecision(BaseModel):
@@ -181,6 +182,7 @@ def _clean_chat_answer(answer: str) -> str:
         before, after = THINK_CLOSE_PATTERN.split(normalized, maxsplit=1)
         normalized = after.strip() or before.strip()
     normalized = THINK_TAG_PATTERN.sub("", normalized).strip()
+    normalized = STRAY_TAG_PATTERN.sub("", normalized).strip()
     normalized = ANSWER_META_TAIL_PATTERN.sub("", normalized).strip()
     normalized = _trim_incomplete_tail(normalized)
     return _remove_repeated_answer(normalized)
