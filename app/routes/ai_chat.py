@@ -196,6 +196,8 @@ def _remove_repeated_answer(answer: str) -> str:
         return left
 
     sentences = re.findall(r"[^.!?]+[.!?]+(?:\s|$)", normalized)
+    if not sentences:
+        return normalized
     if len(sentences) % 2 != 0:
         return normalized
 
