@@ -182,7 +182,19 @@ def _clean_chat_answer(answer: str) -> str:
         normalized = after.strip() or before.strip()
     normalized = THINK_TAG_PATTERN.sub("", normalized).strip()
     normalized = ANSWER_META_TAIL_PATTERN.sub("", normalized).strip()
+    normalized = _trim_incomplete_tail(normalized)
     return _remove_repeated_answer(normalized)
+
+
+def _trim_incomplete_tail(answer: str) -> str:
+    normalized = answer.strip()
+    if not normalized or normalized.endswith((".", "!", "?")):
+        return normalized
+
+    last_sentence_end = max(normalized.rfind("."), normalized.rfind("!"), normalized.rfind("?"))
+    if last_sentence_end == -1:
+        return normalized
+    return normalized[: last_sentence_end + 1].strip()
 
 
 def _remove_repeated_answer(answer: str) -> str:
