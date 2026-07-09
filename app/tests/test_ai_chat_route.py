@@ -20,6 +20,22 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(answer, "I'm glad to hear that! BBQ is a great way to enjoy food.")
 
+    def test_clean_chat_answer_removes_reasoning_and_think_artifacts(self) -> None:
+        greeting = _clean_chat_answer(
+            "Hi! How can I assist you today?\n"
+            "Reasoning: The user sent a greeting.\n"
+            "Confidence: 10"
+        )
+        bbq = _clean_chat_answer(
+            "I'm glad to hear that! BBQ is a great way to enjoy food.\n\n"
+            "End of conversation\n"
+            "</think>\n\n"
+            "I'm glad to hear that! BBQ is a great way to enjoy food."
+        )
+
+        self.assertEqual(greeting, "Hi! How can I assist you today?")
+        self.assertEqual(bbq, "I'm glad to hear that! BBQ is a great way to enjoy food.")
+
     async def test_returns_simple_answer_from_llm_decision(self) -> None:
         with patch(
             "app.routes.ai_chat._decide_chat_action",

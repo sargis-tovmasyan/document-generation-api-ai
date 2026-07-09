@@ -76,9 +76,10 @@ INVOICE_REQUEST_PATTERN = re.compile(
     re.IGNORECASE,
 )
 ANSWER_META_TAIL_PATTERN = re.compile(
-    r"\n+\s*(?:the only current message is|the assistant thought|the answer\b).*",
+    r"\n+\s*(?:reasoning|confidence|the only current message is|the assistant thought|the answer\b|end of conversation\b).*",
     re.IGNORECASE | re.DOTALL,
 )
+THINK_CLOSE_PATTERN = re.compile(r"</think>", re.IGNORECASE)
 
 
 class ChatDecision(BaseModel):
@@ -157,8 +158,12 @@ async def _answer_chat_message(message: str) -> str:
 
 
 def _clean_chat_answer(answer: str) -> str:
-    normalized = _remove_repeated_answer(answer)
-    return ANSWER_META_TAIL_PATTERN.sub("", normalized).strip()
+    normalized = answer.strip()
+    if THINK_CLOSE_PATTERN.search(normalized):
+        before, after = THINK_CLOSE_PATTERN.split(normalized, maxsplit=1)
+        normalized = after.strip() or before.strip()
+    normalized = ANSWER_META_TAIL_PATTERN.sub("", normalized).strip()
+    return _remove_repeated_answer(normalized)
 
 
 def _remove_repeated_answer(answer: str) -> str:
