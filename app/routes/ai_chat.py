@@ -76,7 +76,7 @@ INVOICE_REQUEST_PATTERN = re.compile(
     re.IGNORECASE,
 )
 ANSWER_META_TAIL_PATTERN = re.compile(
-    r"\n+\s*(?:thought|reasoning|confidence|the only current message is|the assistant thought|the answer\b|answer\s*:|end of conversation\b).*",
+    r"\s+(?:thought\s*:|reasoning\s*:|confidence\s*:|the only current message is|the assistant thought|the answer\b|answer\s*:|end of conversation\b).*",
     re.IGNORECASE | re.DOTALL,
 )
 THINK_CLOSE_PATTERN = re.compile(r"</think>", re.IGNORECASE)
