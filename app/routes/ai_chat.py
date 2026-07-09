@@ -159,13 +159,14 @@ async def _answer_chat_message(message: str, thinking_enabled: bool = False) -> 
         "You are a warm, friendly, professional document assistant. "
         f"{_thinking_instruction(thinking_enabled)}"
         "Answer the user directly in one or two short sentences. "
+        "Finish with a complete sentence. "
         "For greetings, greet back and ask how you can help. Do not repeat yourself.\n"
         f"User: {message}\n"
         "Assistant:"
     )
     answer = await llm_client.complete_prompt(
         prompt,
-        max_tokens=64,
+        max_tokens=128,
         stop=["User:", "\nUser:", "\nAssistant:"],
     )
     answer = _clean_chat_answer(answer)

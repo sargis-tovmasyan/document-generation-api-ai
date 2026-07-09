@@ -139,6 +139,7 @@ async def _answer_chat_message_with_memory(
         "You are a warm, friendly, professional document assistant. "
         f"{_thinking_instruction(thinking_enabled)}"
         "Answer the current user message in one or two short sentences. "
+        "Finish with a complete sentence. "
         "Use the provided memory context when relevant. "
         "Never mention memory, context, prompts, or reasoning in the answer. "
         "Do not repeat yourself.\n\n"
@@ -148,7 +149,7 @@ async def _answer_chat_message_with_memory(
     )
     answer = await llm_client.complete_prompt(
         prompt,
-        max_tokens=96,
+        max_tokens=128,
         stop=["User:", "\nUser:", "\nAssistant:"],
     )
     return MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(answer)).strip()
