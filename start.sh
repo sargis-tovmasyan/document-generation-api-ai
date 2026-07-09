@@ -5,6 +5,13 @@ set -e
 FORCE_REBUILD=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "${SCRIPT_DIR}/.env"
+    set +a
+fi
+
 DEFAULT_MODEL_FILE="MiniCPM5-1B-Q4_K_M.gguf"
 DEFAULT_MODEL_URL="https://huggingface.co/openbmb/MiniCPM5-1B-GGUF/resolve/main/MiniCPM5-1B-Q4_K_M.gguf"
 MODEL_NAME="${LLAMA_MODEL_FILE:-${LLAMA_MODEL_PATH:-${DEFAULT_MODEL_FILE}}}"
