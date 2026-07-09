@@ -152,6 +152,7 @@ async def _answer_chat_message_with_memory(
         max_tokens=128,
         stop=["User:", "\nUser:", "\nAssistant:"],
     )
+    answer = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", answer)
     return MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(answer)).strip()
 
 

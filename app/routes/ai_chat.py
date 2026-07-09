@@ -188,6 +188,10 @@ def _clean_chat_answer(answer: str) -> str:
 
 def _trim_incomplete_tail(answer: str) -> str:
     normalized = answer.strip()
+    last_open = normalized.rfind("(")
+    last_close = normalized.rfind(")")
+    if last_open > last_close:
+        normalized = normalized[:last_open].strip()
     if not normalized or normalized.endswith((".", "!", "?")):
         return normalized
 
