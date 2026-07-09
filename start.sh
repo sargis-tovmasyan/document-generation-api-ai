@@ -5,10 +5,14 @@ set -e
 FORCE_REBUILD=false
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-MODEL_NAME="${LLAMA_MODEL_FILE:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
+DEFAULT_MODEL_FILE="MiniCPM5-1B-Q4_K_M.gguf"
+DEFAULT_MODEL_URL="https://huggingface.co/openbmb/MiniCPM5-1B-GGUF/resolve/main/MiniCPM5-1B-Q4_K_M.gguf"
+MODEL_NAME="${LLAMA_MODEL_FILE:-${LLAMA_MODEL_PATH:-${DEFAULT_MODEL_FILE}}}"
+MODEL_NAME="${MODEL_NAME##*/}"
 MODEL_DIR="${LLAMA_MODEL_DIR:-${SCRIPT_DIR}/models}"
 MODEL_PATH="${MODEL_DIR}/${MODEL_NAME}"
-MODEL_URL="${LLAMA_MODEL_URL:-https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
+MODEL_URL="${LLAMA_MODEL_URL:-${DEFAULT_MODEL_URL}}"
+export LLAMA_MODEL_PATH="${LLAMA_MODEL_PATH:-/models/${MODEL_NAME}}"
 
 print_usage() {
     echo "Usage: ./start.sh [--no-cache|rebuild|--rebuild]"
@@ -19,6 +23,7 @@ print_usage() {
     echo "Model environment variables:"
     echo "  LLAMA_MODEL_FILE                 Model file name inside ./models"
     echo "  LLAMA_MODEL_URL                  Download URL used when model file is missing"
+    echo "  LLAMA_MODEL_PATH                 Container model path, default: /models/\${LLAMA_MODEL_FILE}"
     echo "  LLAMA_THREADS                    llama.cpp CPU threads, default: 1"
     echo "  LLAMA_CONTEXT_SIZE               llama.cpp context size, default: 2048"
     echo "  LLAMA_PARALLEL                   llama.cpp parallel requests, default: 1"
@@ -61,7 +66,7 @@ mkdir -p "${MODEL_DIR}"
 
 if [ ! -f "${MODEL_PATH}" ]; then
     echo "Model file is missing: ${MODEL_PATH}"
-    echo "Downloading default model: ${MODEL_URL}"
+    echo "Downloading model: ${MODEL_URL}"
     echo "This is a large download and may take several minutes."
 
     if command -v curl > /dev/null 2>&1; then
@@ -99,6 +104,7 @@ echo "API:         http://localhost:8000"
 echo "API docs:    http://localhost:8000/docs"
 echo "llama.cpp:   http://127.0.0.1:${LLAMA_SERVER_PORT:-8080} (bound to localhost only)"
 echo "Model file:  ${MODEL_PATH}"
+echo "Model path:  ${LLAMA_MODEL_PATH}"
 echo "Grafana:     http://localhost:3000"
 echo "Grafana user: ${GRAFANA_ADMIN_USER:-admin}"
 echo "Grafana pass: ${GRAFANA_ADMIN_PASSWORD:-admin}"
