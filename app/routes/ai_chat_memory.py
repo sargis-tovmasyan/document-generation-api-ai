@@ -11,11 +11,11 @@ from pydantic import BaseModel, Field, ValidationError
 from app.routes.ai_chat import (
     CHAT_LLM_UNAVAILABLE_MESSAGE,
     CHAT_PARSE_ERROR_MESSAGE,
+    _clean_chat_answer,
     _decide_chat_action,
     _extract_invoice_draft_for_chat,
     _guard_chat_decision,
     _invoice_list_message,
-    _remove_repeated_answer,
 )
 from app.schemas import InvoiceDraft
 from app.services.chat_schema import ensure_chat_schema
@@ -147,7 +147,7 @@ async def _answer_chat_message_with_memory(
         max_tokens=96,
         stop=["User:", "\nUser:", "\nAssistant:"],
     )
-    return MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _remove_repeated_answer(answer)).strip()
+    return MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(answer)).strip()
 
 
 @router.post("", response_model=None)

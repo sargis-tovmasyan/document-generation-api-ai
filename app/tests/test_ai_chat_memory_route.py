@@ -155,6 +155,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                 return_value=(
                     "Sounds great! Let's plan the details together. "
                     "(memory context: The previous messages were about planning a BBQ.)"
+                    "\n\nThe only current message is: Lets made a BBQ!"
                 )
             ),
         ):

@@ -5,13 +5,21 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from app.routes.ai_chat import ChatDecision, chat
+from app.routes.ai_chat import ChatDecision, _clean_chat_answer, chat
 from app.schemas import AiChatRequest, InvoiceDraft
 from app.services.invoice_service import InvoiceNumberConflictError
 from app.services.llm_client import LlmServiceError
 
 
 class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
+    def test_clean_chat_answer_removes_model_meta_tail(self) -> None:
+        answer = _clean_chat_answer(
+            "I'm glad to hear that! BBQ is a great way to enjoy food.\n\n"
+            'The only current message is: "Lets made a BBQ!" The assistant thought: "meta" The answer'
+        )
+
+        self.assertEqual(answer, "I'm glad to hear that! BBQ is a great way to enjoy food.")
+
     async def test_returns_simple_answer_from_llm_decision(self) -> None:
         with patch(
             "app.routes.ai_chat._decide_chat_action",

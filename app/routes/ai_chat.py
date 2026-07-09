@@ -75,6 +75,10 @@ INVOICE_REQUEST_PATTERN = re.compile(
     r"\b(?:invoice|invoices|bill|billing|receipt|document|documents)\b",
     re.IGNORECASE,
 )
+ANSWER_META_TAIL_PATTERN = re.compile(
+    r"\n+\s*(?:the only current message is|the assistant thought|the answer\b).*",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class ChatDecision(BaseModel):
@@ -147,9 +151,14 @@ async def _answer_chat_message(message: str) -> str:
         max_tokens=64,
         stop=["User:", "\nUser:", "\nAssistant:"],
     )
-    answer = _remove_repeated_answer(answer)
+    answer = _clean_chat_answer(answer)
     log_event("ai.chat.answer.completed", answer_length=len(answer))
     return answer
+
+
+def _clean_chat_answer(answer: str) -> str:
+    normalized = _remove_repeated_answer(answer)
+    return ANSWER_META_TAIL_PATTERN.sub("", normalized).strip()
 
 
 def _remove_repeated_answer(answer: str) -> str:
