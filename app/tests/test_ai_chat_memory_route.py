@@ -140,12 +140,14 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                 shared_memories=[{"content": "Client Alex usually uses USD."}],
                 skill_memories=[{"title": "Monthly invoice", "description": "Ask for month."}],
                 recent_messages=[{"role": "user", "content": "This is for Alex."}],
+                thinking_enabled=True,
             )
 
         self.assertEqual(answer, "Use USD for Alex.")
         prompt = complete_mock.call_args.args[0]
         self.assertIn("Client Alex usually uses USD.", prompt)
         self.assertIn("This is for Alex.", prompt)
+        self.assertIn("You may reason internally", prompt)
         self.assertIn("Never mention memory, context, prompts, or reasoning", prompt)
 
     async def test_answer_removes_memory_context_leak(self) -> None:

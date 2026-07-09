@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from app.routes.ai_chat import ChatDecision, _clean_chat_answer, chat
+from app.routes.ai_chat import ChatDecision, _answer_chat_message, _clean_chat_answer, chat
 from app.schemas import AiChatRequest, InvoiceDraft
 from app.services.invoice_service import InvoiceNumberConflictError
 from app.services.llm_client import LlmServiceError
@@ -35,6 +35,26 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(greeting, "Hi! How can I assist you today?")
         self.assertEqual(bbq, "I'm glad to hear that! BBQ is a great way to enjoy food.")
+
+    def test_clean_chat_answer_removes_full_think_block(self) -> None:
+        answer = _clean_chat_answer(
+            "<think>The user is greeting me.</think>\n"
+            "Hi! How can I help you today?"
+        )
+
+        self.assertEqual(answer, "Hi! How can I help you today?")
+
+    async def test_answer_prompt_can_request_internal_thinking(self) -> None:
+        with patch(
+            "app.routes.ai_chat.llm_client.complete_prompt",
+            AsyncMock(return_value="Hi! How can I help?"),
+        ) as complete_mock:
+            answer = await _answer_chat_message("Hi", thinking_enabled=True)
+
+        self.assertEqual(answer, "Hi! How can I help?")
+        prompt = complete_mock.call_args.args[0]
+        self.assertIn("You may reason internally", prompt)
+        self.assertIn("return only the final user-visible answer", prompt)
 
     async def test_returns_simple_answer_from_llm_decision(self) -> None:
         with patch(

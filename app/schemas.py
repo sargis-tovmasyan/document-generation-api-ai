@@ -217,7 +217,7 @@ class AiInvoiceErrorResponse(BaseModel):
 
 
 class AiChatRequest(AiTestRequest):
-    pass
+    thinking_enabled: bool = False
 
 
 class AiChatAnswerResponse(BaseModel):

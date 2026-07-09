@@ -80,6 +80,8 @@ ANSWER_META_TAIL_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 THINK_CLOSE_PATTERN = re.compile(r"</think>", re.IGNORECASE)
+THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
+THINK_TAG_PATTERN = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
 
 
 class ChatDecision(BaseModel):
@@ -138,10 +140,24 @@ def _load_chat_decision_from_text(content: str) -> ChatDecision:
     raise ValueError("LLM returned an unknown chat action")
 
 
-async def _answer_chat_message(message: str) -> str:
+def _thinking_instruction(thinking_enabled: bool) -> str:
+    if thinking_enabled:
+        return (
+            "You may reason internally before answering, but return only the final "
+            "user-visible answer. Do not include <think> tags, reasoning, analysis, "
+            "confidence, or internal notes. "
+        )
+    return (
+        "Do not use or reveal reasoning. Return only the final user-visible answer. "
+        "Do not include <think> tags, analysis, confidence, or internal notes. "
+    )
+
+
+async def _answer_chat_message(message: str, thinking_enabled: bool = False) -> str:
     log_event("ai.chat.answer.started", **include_frontend_message(message))
     prompt = (
         "You are a warm, friendly, professional document assistant. "
+        f"{_thinking_instruction(thinking_enabled)}"
         "Answer the user directly in one or two short sentences. "
         "For greetings, greet back and ask how you can help. Do not repeat yourself.\n"
         f"User: {message}\n"
@@ -159,9 +175,11 @@ async def _answer_chat_message(message: str) -> str:
 
 def _clean_chat_answer(answer: str) -> str:
     normalized = answer.strip()
+    normalized = THINK_BLOCK_PATTERN.sub("", normalized).strip()
     if THINK_CLOSE_PATTERN.search(normalized):
         before, after = THINK_CLOSE_PATTERN.split(normalized, maxsplit=1)
         normalized = after.strip() or before.strip()
+    normalized = THINK_TAG_PATTERN.sub("", normalized).strip()
     normalized = ANSWER_META_TAIL_PATTERN.sub("", normalized).strip()
     return _remove_repeated_answer(normalized)
 
@@ -390,7 +408,7 @@ async def chat(
 
     if decision.action == "answer":
         try:
-            answer = await _answer_chat_message(payload.message)
+            answer = await _answer_chat_message(payload.message, thinking_enabled=payload.thinking_enabled)
         except LlmServiceError as error:
             response_body = {
                 "status": "llm_unavailable",

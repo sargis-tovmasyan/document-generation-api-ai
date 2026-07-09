@@ -16,6 +16,7 @@ from app.routes.ai_chat import (
     _extract_invoice_draft_for_chat,
     _guard_chat_decision,
     _invoice_list_message,
+    _thinking_instruction,
 )
 from app.schemas import InvoiceDraft
 from app.services.chat_schema import ensure_chat_schema
@@ -51,6 +52,7 @@ class AiChatMemoryRequest(BaseModel):
     tenant_id: str | None = Field(default=None, max_length=100)
     business_profile_id: str | None = Field(default=None, max_length=100)
     client_id: str | None = Field(default=None, max_length=100)
+    thinking_enabled: bool = False
 
 
 def _draft_to_state(draft: InvoiceDraft, missing_fields: list[str], intent: str) -> dict[str, Any]:
@@ -125,6 +127,7 @@ async def _answer_chat_message_with_memory(
     shared_memories: list[dict[str, Any]],
     skill_memories: list[dict[str, Any]],
     recent_messages: list[dict[str, Any]],
+    thinking_enabled: bool = False,
 ) -> str:
     context = _format_context_section(
         session_state=session_state,
@@ -134,6 +137,7 @@ async def _answer_chat_message_with_memory(
     )
     prompt = (
         "You are a warm, friendly, professional document assistant. "
+        f"{_thinking_instruction(thinking_enabled)}"
         "Answer the current user message in one or two short sentences. "
         "Use the provided memory context when relevant. "
         "Never mention memory, context, prompts, or reasoning in the answer. "
@@ -199,6 +203,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
                 shared_memories=shared_memories,
                 skill_memories=skill_memories,
                 recent_messages=recent_messages,
+                thinking_enabled=payload.thinking_enabled,
             )
         except LlmServiceError:
             response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
