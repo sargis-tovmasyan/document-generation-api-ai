@@ -44,6 +44,16 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(answer, "Hi! How can I help you today?")
 
+    def test_clean_chat_answer_removes_thought_tail(self) -> None:
+        answer = _clean_chat_answer(
+            "Hi\n\n"
+            "Thought: The user's message is a simple greeting.\n\n"
+            "Answer:\n"
+            "Hi"
+        )
+
+        self.assertEqual(answer, "Hi")
+
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(
             "app.routes.ai_chat.llm_client.complete_prompt",

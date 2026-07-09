@@ -76,7 +76,7 @@ INVOICE_REQUEST_PATTERN = re.compile(
     re.IGNORECASE,
 )
 ANSWER_META_TAIL_PATTERN = re.compile(
-    r"\n+\s*(?:reasoning|confidence|the only current message is|the assistant thought|the answer\b|end of conversation\b).*",
+    r"\n+\s*(?:thought|reasoning|confidence|the only current message is|the assistant thought|the answer\b|answer\s*:|end of conversation\b).*",
     re.IGNORECASE | re.DOTALL,
 )
 THINK_CLOSE_PATTERN = re.compile(r"</think>", re.IGNORECASE)
@@ -145,11 +145,11 @@ def _thinking_instruction(thinking_enabled: bool) -> str:
         return (
             "You may reason internally before answering, but return only the final "
             "user-visible answer. Do not include <think> tags, reasoning, analysis, "
-            "confidence, or internal notes. "
+            "confidence, internal notes, Thought labels, or Answer labels. "
         )
     return (
         "Do not use or reveal reasoning. Return only the final user-visible answer. "
-        "Do not include <think> tags, analysis, confidence, or internal notes. "
+        "Do not include <think> tags, analysis, confidence, internal notes, Thought labels, or Answer labels. "
     )
 
 
