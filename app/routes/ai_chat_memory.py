@@ -34,7 +34,7 @@ from app.services.chat_store import (
 )
 from app.services.invoice_draft_validator import find_missing_invoice_fields, invoice_draft_to_create
 from app.services.invoice_service import InvoiceNumberConflictError, create_invoice, list_invoices
-from app.services.knowledge_store import list_shared_memories, list_skill_memories, save_fact
+from app.services.knowledge_store import list_shared_memories, list_skill_memories
 from app.services.learning_extractor import extract_and_store_learning
 from app.services.llm_client import LlmServiceError, llm_client
 
@@ -248,25 +248,22 @@ def _format_saved_memory(memory: str) -> str:
 
 def _save_requested_memory(
     *,
-    user_id: str,
-    chat_id: str,
+    session_state: dict[str, Any],
     memory: str,
-    business_profile_id: str | None,
-    client_id: str | None,
 ) -> None:
     saved_content = _format_saved_memory(memory)
     if not saved_content:
         return
-    save_fact(
-        user_id=user_id,
-        source_chat_id=chat_id,
-        fact_type="user_requested_memory",
-        content=saved_content,
-        structured={"source": "explicit_remember_request"},
-        confidence=0.95,
-        business_profile_id=business_profile_id,
-        client_id=client_id,
-    )
+    requested_memories = session_state.setdefault("requested_memories", [])
+    if isinstance(requested_memories, list) and saved_content not in requested_memories:
+        requested_memories.append(saved_content)
+
+
+def _session_requested_memories(session_state: dict[str, Any]) -> list[dict[str, Any]]:
+    requested_memories = session_state.get("requested_memories")
+    if not isinstance(requested_memories, list):
+        return []
+    return [{"content": str(memory)} for memory in requested_memories if str(memory).strip()]
 
 
 def _pending_memory_value_from_message(message: str, session_state: dict[str, Any]) -> str:
@@ -615,11 +612,8 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
     pending_memory = _pending_memory_value_from_message(payload.message, session_state)
     if pending_memory:
         _save_requested_memory(
-            user_id=payload.user_id,
-            chat_id=chat_id,
+            session_state=session_state,
             memory=pending_memory,
-            business_profile_id=payload.business_profile_id,
-            client_id=payload.client_id,
         )
         session_state.pop("pending_memory_request", None)
         upsert_session_state(chat_id, session_state)
@@ -679,12 +673,10 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
             saved_content = _format_saved_memory(memory_extract.memory)
             if saved_content:
                 _save_requested_memory(
-                    user_id=payload.user_id,
-                    chat_id=chat_id,
+                    session_state=session_state,
                     memory=memory_extract.memory,
-                    business_profile_id=payload.business_profile_id,
-                    client_id=payload.client_id,
                 )
+                upsert_session_state(chat_id, session_state)
                 answer = "Got it. I will remember that."
             else:
                 answer = "Yes, send me what you want me to remember."
@@ -694,12 +686,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         return response
 
     if action == "recall_memory":
-        shared_memories = list_shared_memories(
-            user_id=payload.user_id,
-            business_profile_id=payload.business_profile_id,
-            client_id=payload.client_id,
-        )
-        answer = await _recall_memory_answer(payload.message, shared_memories)
+        answer = await _recall_memory_answer(payload.message, _session_requested_memories(session_state))
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
         return response

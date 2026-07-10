@@ -16,7 +16,7 @@ from app.routes.ai_chat_memory import (
 )
 from app.schemas import InvoiceDraft
 from app.services import chat_schema, knowledge_store
-from app.services.chat_store import get_chat_thread, get_session_state, list_chat_messages
+from app.services.chat_store import DEFAULT_USER_ID, get_chat_thread, get_session_state, list_chat_messages
 
 
 class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -408,6 +408,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         chat_id = remember_response["chat_id"]
         self.assertEqual(remember_response["status"], "answer")
         self.assertIn("remember", remember_response["message"].lower())
+        self.assertEqual(knowledge_store.list_shared_memories(user_id=DEFAULT_USER_ID), [])
 
         with (
             patch(
@@ -430,6 +431,32 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         messages = list_chat_messages(chat_id)
         self.assertEqual([message["role"] for message in messages], ["user", "assistant", "user", "assistant"])
+
+    async def test_requested_memory_does_not_leak_to_other_chats(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"has_memory":true,"memory":"number 1234"}'),
+            ),
+        ):
+            await chat(AiChatMemoryRequest(message="remember number 1234"))
+
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="recall_memory")),
+            ),
+            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock()) as complete_mock,
+        ):
+            recall_response = await chat(AiChatMemoryRequest(message="what number did I ask you to remember?"))
+
+        self.assertEqual(recall_response["status"], "answer")
+        self.assertIn("do not have", recall_response["message"].lower())
+        complete_mock.assert_not_called()
 
     async def test_remembers_number_when_extractor_misses_explicit_value(self) -> None:
         with (

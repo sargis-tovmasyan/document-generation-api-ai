@@ -75,6 +75,7 @@ async def extract_and_store_learning(
         "Extract stable document assistant learning from this chat. "
         "Save only durable preferences, defaults, client or business facts, and reusable workflows. "
         "Do not save greetings or one-time temporary document values. "
+        "Do not save explicit requests to remember temporary numbers, colors, codes, or values; those stay in chat session state. "
         "Return JSON with facts and skills arrays only.\n\n"
         f"Session state JSON:\n{json.dumps(session_state, ensure_ascii=False)}\n\n"
         f"Recent chat:\n{transcript}\n"
