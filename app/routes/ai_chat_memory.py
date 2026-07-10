@@ -458,6 +458,8 @@ def _answer_prompt_with_memory(
         "Answer the current user message in one or two short sentences. "
         "Finish with a complete sentence. "
         "For normal questions, answer directly using the current user message. "
+        "You can answer common-knowledge questions and simple list requests directly. "
+        "Do not refuse normal questions by claiming you lack a database, capability, memory, or context. "
         f"{context_instruction}"
         "Do not repeat yourself.\n\n"
         f"{context_block}"

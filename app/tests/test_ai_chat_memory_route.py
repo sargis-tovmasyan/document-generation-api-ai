@@ -169,6 +169,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("memory", prompt.lower())
         self.assertNotIn("saved", prompt.lower())
         self.assertNotIn("Recent messages", prompt)
+        self.assertIn("common-knowledge", prompt)
+        self.assertIn("Do not refuse normal questions", prompt)
 
     async def test_greeting_uses_no_context_and_no_memory_text(self) -> None:
         with patch(
