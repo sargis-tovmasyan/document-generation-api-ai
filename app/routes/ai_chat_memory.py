@@ -55,12 +55,36 @@ LETTER_COUNT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 NUMBER_RECALL_PATTERN = re.compile(r"\b(?:number|code|pin)\b", re.IGNORECASE)
-NUMBER_VALUE_PATTERN = re.compile(r"\b(?:number|code|pin)\s+(?:is\s+)?([A-Za-z0-9][A-Za-z0-9._-]*)\b", re.IGNORECASE)
+NUMBER_VALUE_PATTERN = re.compile(
+    r"\b(?:number|code|pin)\s*(?::|=|\bis\b)?\s*([A-Za-z0-9][A-Za-z0-9._-]*)\b",
+    re.IGNORECASE,
+)
+ORDINAL_PATTERN = re.compile(
+    r"\b(?:(?P<number>\d+)(?:st|nd|rd|th)?|(?P<word>first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth))\b",
+    re.IGNORECASE,
+)
+RECENT_LIST_REFERENCE_PATTERN = re.compile(
+    r"\b(?:you\s+(?:named|listed|said|gave|mentioned)|recently|previous(?:ly)?|earlier|before|last answer|above)\b",
+    re.IGNORECASE,
+)
+NUMBERED_ITEM_PATTERN = re.compile(r"(?<!\w)(\d+)\s*[\).\:-]\s*")
 EXPLICIT_REMEMBER_PATTERN = re.compile(
     r"\b(?:remember|memorize|save)\b(?:\s+that)?\s+(?P<memory>.+)",
     re.IGNORECASE | re.DOTALL,
 )
 IGNORED_MEMORY_VALUES = {"a", "an", "and", "for", "me", "the", "this", "that", "it"}
+ORDINAL_WORDS = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "fifth": 5,
+    "sixth": 6,
+    "seventh": 7,
+    "eighth": 8,
+    "ninth": 9,
+    "tenth": 10,
+}
 
 MEMORY_EXTRACT_SCHEMA = {
     "type": "object",
@@ -275,6 +299,53 @@ def _answer_letter_count_question(message: str) -> str | None:
     return f'There {"is" if count == 1 else "are"} {count} "{char}" letter{plural} in "{text}".'
 
 
+def _ordinal_from_message(message: str) -> int | None:
+    match = ORDINAL_PATTERN.search(message)
+    if not match:
+        return None
+    if match.group("number"):
+        return int(match.group("number"))
+    return ORDINAL_WORDS.get(match.group("word").lower())
+
+
+def _should_answer_from_recent_list(message: str) -> bool:
+    return bool(_ordinal_from_message(message) and RECENT_LIST_REFERENCE_PATTERN.search(message))
+
+
+def _numbered_items_from_text(text: str) -> dict[int, str]:
+    matches = list(NUMBERED_ITEM_PATTERN.finditer(text))
+    items: dict[int, str] = {}
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        item = text[start:end].strip(" \t\r\n,;")
+        if item:
+            items[int(match.group(1))] = item
+    return items
+
+
+def _answer_recent_list_question(message: str, recent_messages: list[dict[str, Any]]) -> str | None:
+    ordinal = _ordinal_from_message(message)
+    if not ordinal or not _should_answer_from_recent_list(message):
+        return None
+
+    for recent_message in reversed(recent_messages):
+        if recent_message.get("role") != "assistant":
+            continue
+        items = _numbered_items_from_text(str(recent_message.get("content", "")))
+        if ordinal in items:
+            return f"The {_ordinal_label(ordinal)} item I named was {items[ordinal]}."
+    return None
+
+
+def _ordinal_label(value: int) -> str:
+    if 10 <= value % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+    return f"{value}{suffix}"
+
+
 def _is_partial_memory_disclaimer(message: str, answer: str) -> bool:
     if _asks_about_saved_memory(message):
         return False
@@ -383,6 +454,9 @@ async def _answer_chat_message_with_memory(
     letter_count_answer = _answer_letter_count_question(message)
     if letter_count_answer:
         return letter_count_answer
+    recent_list_answer = _answer_recent_list_question(message, recent_messages)
+    if recent_list_answer:
+        return recent_list_answer
 
     prompt = _answer_prompt_with_memory(
         message=message,
@@ -426,6 +500,10 @@ async def _stream_answer_with_memory(
     letter_count_answer = _answer_letter_count_question(message)
     if letter_count_answer:
         yield letter_count_answer
+        return
+    recent_list_answer = _answer_recent_list_question(message, recent_messages)
+    if recent_list_answer:
+        yield recent_list_answer
         return
 
     prompt = _answer_prompt_with_memory(
@@ -520,6 +598,8 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
     action = decision.action
     if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
         action = "create_invoice"
+    elif _should_answer_from_recent_list(payload.message):
+        action = "answer"
 
     if action == "remember_memory":
         try:
@@ -722,6 +802,8 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         action = decision.action
         if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
             action = "create_invoice"
+        elif _should_answer_from_recent_list(payload.message):
+            action = "answer"
 
         if action != "answer":
             response = await chat(stream_payload)

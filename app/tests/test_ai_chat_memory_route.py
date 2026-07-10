@@ -396,6 +396,51 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("42", recall_response["message"])
 
+    async def test_follow_up_ordinal_question_uses_recent_assistant_list(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="answer")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory._answer_chat_message_with_memory",
+                AsyncMock(return_value="1. Rose, 2. Sunflower, 3. Tulip, 4. Daisy, 5. Lily."),
+            ),
+            patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+        ):
+            first_response = await chat(AiChatMemoryRequest(message="Name me 5 flowers."))
+
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+            ),
+            patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+        ):
+            second_response = await chat(
+                AiChatMemoryRequest(chat_id=first_response["chat_id"], message="what is the 3th flower you named?")
+            )
+
+        self.assertEqual(second_response["status"], "answer")
+        self.assertIn("Tulip", second_response["message"])
+        self.assertNotIn("remember", second_response["message"].lower())
+
+    async def test_remembers_number_with_colon_value(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"has_memory":true,"memory":"number: 58 Color: Blue"}'),
+            ),
+        ):
+            response = await chat(AiChatMemoryRequest(message="please remember this two data number: 58 Color: Blue"))
+
+        self.assertEqual(response["status"], "answer")
+        self.assertEqual(response["message"], "Got it. I will remember that.")
+
 
 if __name__ == "__main__":
     unittest.main()
