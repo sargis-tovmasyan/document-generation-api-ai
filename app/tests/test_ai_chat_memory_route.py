@@ -219,6 +219,30 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         messages = list_chat_messages(chat_id)
         self.assertEqual([message["role"] for message in messages], ["user", "assistant", "user", "assistant"])
 
+    async def test_remembers_number_when_extractor_misses_explicit_value(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"has_memory":false,"memory":""}'),
+            ),
+        ):
+            remember_response = await chat(AiChatMemoryRequest(message="remember number 1234"))
+
+        chat_id = remember_response["chat_id"]
+        with patch(
+            "app.routes.ai_chat_memory._decide_chat_action",
+            AsyncMock(return_value=ChatDecision(action="recall_memory")),
+        ):
+            recall_response = await chat(
+                AiChatMemoryRequest(chat_id=chat_id, message="what number did I ask you to remember?")
+            )
+
+        self.assertIn("1234", recall_response["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

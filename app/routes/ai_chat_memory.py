@@ -45,6 +45,10 @@ MEMORY_CONTEXT_LEAK_PATTERN = re.compile(
     re.IGNORECASE,
 )
 NUMBER_RECALL_PATTERN = re.compile(r"\b(?:number|code|pin)\b", re.IGNORECASE)
+EXPLICIT_REMEMBER_PATTERN = re.compile(
+    r"\b(?:remember|memorize|save)\b(?:\s+that)?\s+(?P<memory>.+)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 MEMORY_EXTRACT_SCHEMA = {
     "type": "object",
@@ -132,6 +136,16 @@ def _format_saved_memory(memory: str) -> str:
     if not normalized:
         return ""
     return f"User asked me to remember {normalized}."
+
+
+def _fallback_memory_from_message(message: str) -> str:
+    match = EXPLICIT_REMEMBER_PATTERN.search(message.strip())
+    if not match:
+        return ""
+    memory = match.group("memory").strip(" .!?")
+    if not memory or memory.lower().startswith(("a ", "an ", "the ")):
+        return ""
+    return memory
 
 
 def _remembered_number_from_memories(shared_memories: list[dict[str, Any]]) -> str | None:
@@ -294,6 +308,11 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
             return JSONResponse(status_code=503, content=response_body)
         except (ValueError, ValidationError):
             memory_extract = MemoryExtract(has_memory=False, memory="")
+
+        if not memory_extract.has_memory or not memory_extract.memory.strip():
+            fallback_memory = _fallback_memory_from_message(payload.message)
+            if fallback_memory:
+                memory_extract = MemoryExtract(has_memory=True, memory=fallback_memory)
 
         if not memory_extract.has_memory or not memory_extract.memory.strip():
             answer = "Yes, send me the number and I will remember it for this chat."
