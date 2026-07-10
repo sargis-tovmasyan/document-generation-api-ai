@@ -90,6 +90,18 @@ class ChatDecision(BaseModel):
     message: str = ""
 
 
+TEMPERATURE_PRESETS: dict[str, float] = {
+    "low": 0.2,
+    "medium": 0.4,
+    "high": 0.7,
+    "extra_high": 1.0,
+}
+
+
+def _temperature_for_preset(preset: str) -> float:
+    return TEMPERATURE_PRESETS.get(preset, TEMPERATURE_PRESETS["medium"])
+
+
 def _load_chat_decision(content: str) -> ChatDecision:
     normalized = content.strip().lower()
     if normalized in {"answer", "list_invoices", "create_invoice"}:
@@ -154,7 +166,11 @@ def _thinking_instruction(thinking_enabled: bool) -> str:
     )
 
 
-async def _answer_chat_message(message: str, thinking_enabled: bool = False) -> str:
+async def _answer_chat_message(
+    message: str,
+    thinking_enabled: bool = False,
+    temperature_preset: str = "medium",
+) -> str:
     log_event("ai.chat.answer.started", **include_frontend_message(message))
     prompt = (
         "You are a warm, friendly, professional document assistant. "
@@ -169,6 +185,7 @@ async def _answer_chat_message(message: str, thinking_enabled: bool = False) -> 
         prompt,
         max_tokens=128,
         stop=["User:", "\nUser:", "\nAssistant:"],
+        temperature=_temperature_for_preset(temperature_preset),
     )
     answer = _clean_chat_answer(answer)
     log_event("ai.chat.answer.completed", answer_length=len(answer))
@@ -429,7 +446,11 @@ async def chat(
 
     if decision.action == "answer":
         try:
-            answer = await _answer_chat_message(payload.message, thinking_enabled=payload.thinking_enabled)
+            answer = await _answer_chat_message(
+                payload.message,
+                thinking_enabled=payload.thinking_enabled,
+                temperature_preset=payload.temperature_preset,
+            )
         except LlmServiceError as error:
             response_body = {
                 "status": "llm_unavailable",

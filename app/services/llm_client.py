@@ -37,11 +37,12 @@ class LlmClient:
         json_schema: dict | None = None,
         max_tokens: int | None = None,
         stop: list[str] | None = None,
+        temperature: float | None = None,
     ) -> str:
         payload = {
             "prompt": prompt,
             "n_predict": max_tokens if max_tokens is not None else LLM_MAX_TOKENS,
-            "temperature": LLM_TEMPERATURE,
+            "temperature": temperature if temperature is not None else LLM_TEMPERATURE,
             "stop": stop if stop is not None else ["User:"],
         }
         if json_schema is not None:

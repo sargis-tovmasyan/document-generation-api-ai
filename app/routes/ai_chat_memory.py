@@ -17,6 +17,7 @@ from app.routes.ai_chat import (
     _guard_chat_decision,
     _invoice_list_message,
     _thinking_instruction,
+    _temperature_for_preset,
 )
 from app.schemas import InvoiceDraft
 from app.services.chat_schema import ensure_chat_schema
@@ -53,6 +54,7 @@ class AiChatMemoryRequest(BaseModel):
     business_profile_id: str | None = Field(default=None, max_length=100)
     client_id: str | None = Field(default=None, max_length=100)
     thinking_enabled: bool = False
+    temperature_preset: str = Field(default="medium", pattern="^(low|medium|high|extra_high)$")
 
 
 def _draft_to_state(draft: InvoiceDraft, missing_fields: list[str], intent: str) -> dict[str, Any]:
@@ -128,6 +130,7 @@ async def _answer_chat_message_with_memory(
     skill_memories: list[dict[str, Any]],
     recent_messages: list[dict[str, Any]],
     thinking_enabled: bool = False,
+    temperature_preset: str = "medium",
 ) -> str:
     context = _format_context_section(
         session_state=session_state,
@@ -151,6 +154,7 @@ async def _answer_chat_message_with_memory(
         prompt,
         max_tokens=128,
         stop=["User:", "\nUser:", "\nAssistant:"],
+        temperature=_temperature_for_preset(temperature_preset),
     )
     answer = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", answer)
     return MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(answer)).strip()
@@ -206,6 +210,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
                 skill_memories=skill_memories,
                 recent_messages=recent_messages,
                 thinking_enabled=payload.thinking_enabled,
+                temperature_preset=payload.temperature_preset,
             )
         except LlmServiceError:
             response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}

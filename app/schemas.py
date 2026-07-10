@@ -218,6 +218,7 @@ class AiInvoiceErrorResponse(BaseModel):
 
 class AiChatRequest(AiTestRequest):
     thinking_enabled: bool = False
+    temperature_preset: Literal["low", "medium", "high", "extra_high"] = "medium"
 
 
 class AiChatAnswerResponse(BaseModel):
