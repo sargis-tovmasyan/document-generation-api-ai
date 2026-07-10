@@ -36,7 +36,7 @@ services:
       args:
         LLAMA_CPP_REF: "${LLAMA_CPP_REF:-master}"
     environment:
-      LLAMA_MODEL_PATH: "${LLAMA_MODEL_PATH:-/models/MiniCPM5-1B-Q4_K_M.gguf}"
+      LLAMA_MODEL_PATH: "${LLAMA_MODEL_PATH:-/models/${LLAMA_MODEL_FILE:-MiniCPM5-1B-Q4_K_M.gguf}}"
       LLAMA_HOST: "0.0.0.0"
       LLAMA_PORT: "8080"
       LLAMA_THREADS: "${LLAMA_THREADS:-1}"
