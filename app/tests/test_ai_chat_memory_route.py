@@ -175,7 +175,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             chunks = [
                 chunk
                 async for chunk in _stream_answer_with_memory(
-                    message='How many r in "raspberry"?',
+                    message="Give me a short professional greeting.",
                     session_state={},
                     shared_memories=[],
                     skill_memories=[],
@@ -186,6 +186,24 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             ]
 
         self.assertEqual("".join(chunks), "There are two r letters.")
+
+    async def test_stream_answer_counts_quoted_letters_without_memory_disclaimer(self) -> None:
+        chunks = [
+            chunk
+            async for chunk in _stream_answer_with_memory(
+                message='How many r in "raspberry"?',
+                session_state={},
+                shared_memories=[],
+                skill_memories=[],
+                recent_messages=[],
+                thinking_enabled=False,
+                temperature_preset="low",
+            )
+        ]
+
+        answer = "".join(chunks)
+        self.assertNotIn("memory", answer.lower())
+        self.assertEqual(answer, 'There are 3 "r" letters in "raspberry".')
 
     async def test_answer_removes_memory_context_leak(self) -> None:
         with patch(

@@ -50,6 +50,10 @@ MEMORY_DISCLAIMER_PATTERN = re.compile(
     r"(?:^|\s+)I\s+(?:do\s+not|don't)\s+have\s+(?:access\s+to\s+)?memory\.?\s*",
     re.IGNORECASE,
 )
+LETTER_COUNT_PATTERN = re.compile(
+    r"\bhow\s+many\s+['\"]?(?P<char>[A-Za-z])['\"]?\s+(?:are\s+)?(?:in|inside)\s+['\"](?P<text>[^'\"]+)['\"]",
+    re.IGNORECASE,
+)
 NUMBER_RECALL_PATTERN = re.compile(r"\b(?:number|code|pin)\b", re.IGNORECASE)
 NUMBER_VALUE_PATTERN = re.compile(r"\b(?:number|code|pin)\s+(?:is\s+)?([A-Za-z0-9][A-Za-z0-9._-]*)\b", re.IGNORECASE)
 EXPLICIT_REMEMBER_PATTERN = re.compile(
@@ -260,6 +264,17 @@ def _clean_memory_safe_answer(message: str, answer: str, *, fallback: bool = Tru
     return "I can help with that."
 
 
+def _answer_letter_count_question(message: str) -> str | None:
+    match = LETTER_COUNT_PATTERN.search(message)
+    if not match:
+        return None
+    char = match.group("char")
+    text = match.group("text")
+    count = text.lower().count(char.lower())
+    plural = "" if count == 1 else "s"
+    return f'There {"is" if count == 1 else "are"} {count} "{char}" letter{plural} in "{text}".'
+
+
 def _is_partial_memory_disclaimer(message: str, answer: str) -> bool:
     if _asks_about_saved_memory(message):
         return False
@@ -365,6 +380,10 @@ async def _answer_chat_message_with_memory(
     thinking_enabled: bool = False,
     temperature_preset: str = "medium",
 ) -> str:
+    letter_count_answer = _answer_letter_count_question(message)
+    if letter_count_answer:
+        return letter_count_answer
+
     prompt = _answer_prompt_with_memory(
         message=message,
         session_state=session_state,
@@ -404,6 +423,11 @@ async def _stream_answer_with_memory(
     thinking_enabled: bool,
     temperature_preset: str,
 ) -> AsyncIterator[str]:
+    letter_count_answer = _answer_letter_count_question(message)
+    if letter_count_answer:
+        yield letter_count_answer
+        return
+
     prompt = _answer_prompt_with_memory(
         message=message,
         session_state=session_state,
