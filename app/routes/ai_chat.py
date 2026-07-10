@@ -80,7 +80,7 @@ INVOICE_REQUEST_PATTERN = re.compile(
     re.IGNORECASE,
 )
 ANSWER_META_TAIL_PATTERN = re.compile(
-    r"\s+(?:thought\s*:|reasoning\s*:|confidence\s*:|the only current message is|the assistant thought|the answer\b|answer\s*:|end of conversation\b).*",
+    r"\s+(?:thought\s*:|reasoning\s*:|reasoning\b|confidence\s*:|the only current message is|the assistant thought|the answer\b|answer\s*:|end of conversation\b).*",
     re.IGNORECASE | re.DOTALL,
 )
 ROLE_ECHO_TAIL_PATTERN = re.compile(r"\s+(?:user|assistant)\s*:.*", re.IGNORECASE | re.DOTALL)

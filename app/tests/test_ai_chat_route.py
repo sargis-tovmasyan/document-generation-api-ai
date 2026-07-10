@@ -26,6 +26,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
             "Reasoning: The user sent a greeting.\n"
             "Confidence: 10"
         )
+        streaming_tail = _clean_chat_answer("Hi\n\nReasoning")
         bbq = _clean_chat_answer(
             "I'm glad to hear that! BBQ is a great way to enjoy food.\n\n"
             "End of conversation\n"
@@ -34,6 +35,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(greeting, "Hi! How can I assist you today?")
+        self.assertEqual(streaming_tail, "Hi")
         self.assertEqual(bbq, "I'm glad to hear that! BBQ is a great way to enjoy food.")
 
     def test_clean_chat_answer_removes_full_think_block(self) -> None:
