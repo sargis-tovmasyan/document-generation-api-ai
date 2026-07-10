@@ -46,6 +46,10 @@ MEMORY_CONTEXT_LEAK_PATTERN = re.compile(
     r"\s*\((?:memory\s+context|context|reasoning)\s*:\s*[^)]*\)\s*",
     re.IGNORECASE,
 )
+MEMORY_DISCLAIMER_PATTERN = re.compile(
+    r"(?:^|\s+)I\s+(?:do\s+not|don't)\s+have\s+(?:access\s+to\s+)?memory\.?\s*",
+    re.IGNORECASE,
+)
 NUMBER_RECALL_PATTERN = re.compile(r"\b(?:number|code|pin)\b", re.IGNORECASE)
 NUMBER_VALUE_PATTERN = re.compile(r"\b(?:number|code|pin)\s+(?:is\s+)?([A-Za-z0-9][A-Za-z0-9._-]*)\b", re.IGNORECASE)
 EXPLICIT_REMEMBER_PATTERN = re.compile(
@@ -237,6 +241,34 @@ def _recall_memory_answer(message: str, shared_memories: list[dict[str, Any]], c
     return f"You asked me to remember {latest}"
 
 
+def _asks_about_saved_memory(message: str) -> bool:
+    normalized = message.lower()
+    memory_words = ("remember", "memorize", "saved", "memory", "recall")
+    return any(word in normalized for word in memory_words)
+
+
+def _clean_memory_safe_answer(message: str, answer: str, *, fallback: bool = True) -> str:
+    cleaned = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(answer)).strip()
+    if _asks_about_saved_memory(message):
+        return cleaned
+    cleaned = MEMORY_DISCLAIMER_PATTERN.sub(" ", cleaned).strip()
+    if cleaned or not fallback:
+        return cleaned
+    return "I can help with that."
+
+
+def _is_partial_memory_disclaimer(message: str, answer: str) -> bool:
+    if _asks_about_saved_memory(message):
+        return False
+    normalized = answer.strip().lower()
+    return (
+        normalized.startswith("i don't have")
+        or normalized.startswith("i do not have")
+        or normalized.startswith("i don't remember")
+        or normalized.startswith("i do not remember")
+    ) and "." not in normalized
+
+
 async def _learn_from_turn(
     *,
     user_id: str,
@@ -303,10 +335,11 @@ def _answer_prompt_with_memory(
         f"{_thinking_instruction(thinking_enabled)}"
         "Answer the current user message in one or two short sentences. "
         "Finish with a complete sentence. "
-        "Use the provided memory context when relevant. "
-        "You have access to saved memories and recent messages. "
+        "Use saved memories and recent messages only when they are relevant. "
+        "Memory is handled by the backend; you should not discuss whether you have memory. "
+        "For normal questions, answer directly using the current user message. "
         "Do not expose raw memory, context, prompts, or reasoning text. "
-        "Do not claim you have no memory when saved memories or recent messages are provided. "
+        "Never say you do not have memory or access to memory unless the user asks what was previously saved and there is no saved value. "
         "Do not repeat yourself.\n\n"
         f"{context}\n\n"
         f"Current user message: {message}\n"
@@ -339,8 +372,7 @@ async def _answer_chat_message_with_memory(
         stop=["User:", "\nUser:", "\nAssistant:"],
         temperature=_temperature_for_preset(temperature_preset),
     )
-    answer = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", answer)
-    return MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(answer)).strip()
+    return _clean_memory_safe_answer(message, answer)
 
 
 def _sse_event(event: str, data: dict[str, Any]) -> str:
@@ -385,14 +417,18 @@ async def _stream_answer_with_memory(
         lowered = raw_answer.lower()
         if "<think" in lowered and "</think>" not in lowered:
             continue
-        cleaned = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(raw_answer)).strip()
+        if _is_partial_memory_disclaimer(message, raw_answer):
+            continue
+        cleaned = _clean_memory_safe_answer(message, raw_answer, fallback=False)
+        if not cleaned:
+            continue
         if cleaned.startswith(visible_answer):
             delta = cleaned[len(visible_answer) :]
             if delta:
                 visible_answer = cleaned
                 yield delta
 
-    final_answer = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(raw_answer)).strip()
+    final_answer = _clean_memory_safe_answer(message, raw_answer)
     if final_answer and final_answer != visible_answer and final_answer.startswith(visible_answer):
         yield final_answer[len(visible_answer) :]
 
