@@ -243,6 +243,38 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("1234", recall_response["message"])
 
+    async def test_pending_number_request_saves_follow_up_value(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"has_memory":true,"memory":"for me the number and remind me when I ask"}'),
+            ),
+        ):
+            first_response = await chat(
+                AiChatMemoryRequest(message="can you remember for me the number and remind me when I ask?")
+            )
+
+        chat_id = first_response["chat_id"]
+        self.assertIn("send me the number", first_response["message"])
+
+        second_response = await chat(AiChatMemoryRequest(chat_id=chat_id, message="the number is 42"))
+
+        self.assertEqual(second_response["message"], "Got it. I will remember that.")
+
+        with patch(
+            "app.routes.ai_chat_memory._decide_chat_action",
+            AsyncMock(return_value=ChatDecision(action="recall_memory")),
+        ):
+            recall_response = await chat(
+                AiChatMemoryRequest(chat_id=chat_id, message="whats the number I asked to remember?")
+            )
+
+        self.assertIn("42", recall_response["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

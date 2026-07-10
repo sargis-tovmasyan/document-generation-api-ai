@@ -240,6 +240,13 @@ def _remove_repeated_answer(answer: str) -> str:
     sentences = re.findall(r"[^.!?]+[.!?]+(?:\s|$)", normalized)
     if not sentences:
         return normalized
+    collapsed_sentences: list[str] = []
+    for sentence in sentences:
+        stripped = sentence.strip()
+        if not collapsed_sentences or collapsed_sentences[-1] != stripped:
+            collapsed_sentences.append(stripped)
+    if len(collapsed_sentences) < len(sentences):
+        return " ".join(collapsed_sentences)
     if len(sentences) % 2 != 0:
         return normalized
 

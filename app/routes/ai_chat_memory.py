@@ -45,10 +45,12 @@ MEMORY_CONTEXT_LEAK_PATTERN = re.compile(
     re.IGNORECASE,
 )
 NUMBER_RECALL_PATTERN = re.compile(r"\b(?:number|code|pin)\b", re.IGNORECASE)
+NUMBER_VALUE_PATTERN = re.compile(r"\b(?:number|code|pin)\s+(?:is\s+)?([A-Za-z0-9][A-Za-z0-9._-]*)\b", re.IGNORECASE)
 EXPLICIT_REMEMBER_PATTERN = re.compile(
     r"\b(?:remember|memorize|save)\b(?:\s+that)?\s+(?P<memory>.+)",
     re.IGNORECASE | re.DOTALL,
 )
+IGNORED_MEMORY_VALUES = {"a", "an", "and", "for", "me", "the", "this", "that", "it"}
 
 MEMORY_EXTRACT_SCHEMA = {
     "type": "object",
@@ -138,6 +140,42 @@ def _format_saved_memory(memory: str) -> str:
     return f"User asked me to remember {normalized}."
 
 
+def _save_requested_memory(
+    *,
+    user_id: str,
+    chat_id: str,
+    memory: str,
+    business_profile_id: str | None,
+    client_id: str | None,
+) -> None:
+    saved_content = _format_saved_memory(memory)
+    if not saved_content:
+        return
+    save_fact(
+        user_id=user_id,
+        source_chat_id=chat_id,
+        fact_type="user_requested_memory",
+        content=saved_content,
+        structured={"source": "explicit_remember_request"},
+        confidence=0.95,
+        business_profile_id=business_profile_id,
+        client_id=client_id,
+    )
+
+
+def _pending_memory_value_from_message(message: str, session_state: dict[str, Any]) -> str:
+    pending = session_state.get("pending_memory_request")
+    if not isinstance(pending, dict):
+        return ""
+    if pending.get("kind") == "number":
+        match = NUMBER_VALUE_PATTERN.search(message.strip())
+        if match:
+            value = match.group(1).strip(" .!?")
+            if value.lower() not in IGNORED_MEMORY_VALUES:
+                return f"number {value}"
+    return ""
+
+
 def _fallback_memory_from_message(message: str) -> str:
     match = EXPLICIT_REMEMBER_PATTERN.search(message.strip())
     if not match:
@@ -145,24 +183,49 @@ def _fallback_memory_from_message(message: str) -> str:
     memory = match.group("memory").strip(" .!?")
     if not memory or memory.lower().startswith(("a ", "an ", "the ")):
         return ""
+    if NUMBER_RECALL_PATTERN.search(memory):
+        value = _number_memory_value(memory)
+        return f"number {value}" if value else ""
     return memory
 
 
-def _remembered_number_from_memories(shared_memories: list[dict[str, Any]]) -> str | None:
-    for memory in shared_memories:
+def _number_memory_value(memory: str) -> str:
+    match = NUMBER_VALUE_PATTERN.search(memory.strip())
+    if not match:
+        return ""
+    value = match.group(1).strip(" .!?")
+    return "" if value.lower() in IGNORED_MEMORY_VALUES else value
+
+
+def _has_concrete_memory(message: str, memory: str) -> bool:
+    normalized = memory.strip()
+    if not normalized:
+        return False
+    if NUMBER_RECALL_PATTERN.search(message):
+        return bool(_number_memory_value(normalized))
+    return True
+
+
+def _remembered_number_from_memories(shared_memories: list[dict[str, Any]], chat_id: str) -> str | None:
+    sorted_memories = sorted(
+        shared_memories,
+        key=lambda memory: 0 if memory.get("source_chat_id") == chat_id else 1,
+    )
+    for memory in sorted_memories:
         content = str(memory.get("content", ""))
-        match = re.search(r"\b(?:number|code|pin)\s+([A-Za-z0-9][A-Za-z0-9._-]*)\b", content, re.IGNORECASE)
-        if match:
-            return match.group(1)
+        for match in re.finditer(r"\b(?:number|code|pin)\s+([A-Za-z0-9][A-Za-z0-9._-]*)\b", content, re.IGNORECASE):
+            value = match.group(1).strip(" .!?")
+            if value.lower() not in IGNORED_MEMORY_VALUES:
+                return value
     return None
 
 
-def _recall_memory_answer(message: str, shared_memories: list[dict[str, Any]]) -> str:
+def _recall_memory_answer(message: str, shared_memories: list[dict[str, Any]], chat_id: str) -> str:
     if not shared_memories:
         return "I do not have anything saved for that yet."
 
     if NUMBER_RECALL_PATTERN.search(message):
-        remembered_number = _remembered_number_from_memories(shared_memories)
+        remembered_number = _remembered_number_from_memories(shared_memories, chat_id)
         if remembered_number:
             return f"The number you asked me to remember is {remembered_number}."
 
@@ -283,6 +346,22 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         client_id=payload.client_id,
     )
 
+    pending_memory = _pending_memory_value_from_message(payload.message, session_state)
+    if pending_memory:
+        _save_requested_memory(
+            user_id=payload.user_id,
+            chat_id=chat_id,
+            memory=pending_memory,
+            business_profile_id=payload.business_profile_id,
+            client_id=payload.client_id,
+        )
+        session_state.pop("pending_memory_request", None)
+        upsert_session_state(chat_id, session_state)
+        answer = "Got it. I will remember that."
+        response = {"status": "answer", "message": answer, "chat_id": chat_id}
+        append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
+        return response
+
     try:
         decision = await _decide_chat_action(payload.message)
     except LlmServiceError:
@@ -314,18 +393,21 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
             if fallback_memory:
                 memory_extract = MemoryExtract(has_memory=True, memory=fallback_memory)
 
+        if memory_extract.has_memory and not _has_concrete_memory(payload.message, memory_extract.memory):
+            memory_extract = MemoryExtract(has_memory=False, memory="")
+
         if not memory_extract.has_memory or not memory_extract.memory.strip():
             answer = "Yes, send me the number and I will remember it for this chat."
+            if NUMBER_RECALL_PATTERN.search(payload.message):
+                session_state["pending_memory_request"] = {"kind": "number"}
+                upsert_session_state(chat_id, session_state)
         else:
             saved_content = _format_saved_memory(memory_extract.memory)
             if saved_content:
-                save_fact(
+                _save_requested_memory(
                     user_id=payload.user_id,
-                    source_chat_id=chat_id,
-                    fact_type="user_requested_memory",
-                    content=saved_content,
-                    structured={"source": "explicit_remember_request"},
-                    confidence=0.95,
+                    chat_id=chat_id,
+                    memory=memory_extract.memory,
                     business_profile_id=payload.business_profile_id,
                     client_id=payload.client_id,
                 )
@@ -338,7 +420,12 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         return response
 
     if action == "recall_memory":
-        answer = _recall_memory_answer(payload.message, shared_memories)
+        shared_memories = list_shared_memories(
+            user_id=payload.user_id,
+            business_profile_id=payload.business_profile_id,
+            client_id=payload.client_id,
+        )
+        answer = _recall_memory_answer(payload.message, shared_memories, chat_id)
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
         return response

@@ -87,6 +87,13 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(answer, "I can remember that for you.")
 
+    def test_clean_chat_answer_collapses_repeated_sentences(self) -> None:
+        answer = _clean_chat_answer(
+            "I remember that. I remember that. I remember that. I remember that."
+        )
+
+        self.assertEqual(answer, "I remember that.")
+
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(
             "app.routes.ai_chat.llm_client.complete_prompt",
