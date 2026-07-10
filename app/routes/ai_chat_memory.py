@@ -252,6 +252,8 @@ def _clean_memory_safe_answer(message: str, answer: str, *, fallback: bool = Tru
     cleaned = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(cleaned)).strip()
     if _asks_about_saved_memory(message):
         return cleaned
+    if _is_partial_memory_disclaimer(message, cleaned):
+        return "I can help with that." if fallback else ""
     cleaned = MEMORY_DISCLAIMER_PATTERN.sub(" ", cleaned).strip()
     if cleaned or not fallback:
         return cleaned
@@ -262,12 +264,15 @@ def _is_partial_memory_disclaimer(message: str, answer: str) -> bool:
     if _asks_about_saved_memory(message):
         return False
     normalized = answer.strip().lower()
+    blocked_starts = (
+        "i don't",
+        "i do not",
+        "i dont",
+    )
     return (
-        normalized.startswith("i don't have")
-        or normalized.startswith("i do not have")
-        or normalized.startswith("i don't remember")
-        or normalized.startswith("i do not remember")
-    ) and "." not in normalized
+        any(prefix.startswith(normalized) or normalized.startswith(prefix) for prefix in blocked_starts)
+        and "." not in normalized
+    )
 
 
 async def _learn_from_turn(
@@ -339,6 +344,7 @@ def _answer_prompt_with_memory(
         "Use saved memories and recent messages only when they are relevant. "
         "Memory is handled by the backend; you should not discuss whether you have memory. "
         "For normal questions, answer directly using the current user message. "
+        "For letter-counting questions, count the requested character in the quoted word directly. "
         "Do not expose raw memory, context, prompts, or reasoning text. "
         "Never say you do not have memory or access to memory unless the user asks what was previously saved and there is no saved value. "
         "Do not repeat yourself.\n\n"

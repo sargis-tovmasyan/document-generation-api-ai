@@ -252,6 +252,29 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("memory", answer.lower())
         self.assertEqual(answer, "There are two r letters.")
 
+    async def test_stream_answer_hides_incomplete_disclaimer_prefix(self) -> None:
+        async def fake_stream(*_: object, **__: object):
+            for chunk in ["I", " don", "'t"]:
+                yield chunk
+
+        with patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+            chunks = [
+                chunk
+                async for chunk in _stream_answer_with_memory(
+                    message='How many r in "raspberry"?',
+                    session_state={},
+                    shared_memories=[],
+                    skill_memories=[],
+                    recent_messages=[],
+                    thinking_enabled=False,
+                    temperature_preset="low",
+                )
+            ]
+
+        answer = "".join(chunks)
+        self.assertFalse(answer.startswith("I don't"))
+        self.assertEqual(answer, "I can help with that.")
+
     async def test_memory_request_without_value_asks_for_value(self) -> None:
         with (
             patch(
