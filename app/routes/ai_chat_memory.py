@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+import json
 import logging
 import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from app.routes.ai_chat import (
@@ -281,7 +283,7 @@ def _format_context_section(
     return "\n".join(lines)
 
 
-async def _answer_chat_message_with_memory(
+def _answer_prompt_with_memory(
     *,
     message: str,
     session_state: dict[str, Any],
@@ -289,7 +291,6 @@ async def _answer_chat_message_with_memory(
     skill_memories: list[dict[str, Any]],
     recent_messages: list[dict[str, Any]],
     thinking_enabled: bool = False,
-    temperature_preset: str = "medium",
 ) -> str:
     context = _format_context_section(
         session_state=session_state,
@@ -311,6 +312,27 @@ async def _answer_chat_message_with_memory(
         f"Current user message: {message}\n"
         "Assistant:"
     )
+    return prompt
+
+
+async def _answer_chat_message_with_memory(
+    *,
+    message: str,
+    session_state: dict[str, Any],
+    shared_memories: list[dict[str, Any]],
+    skill_memories: list[dict[str, Any]],
+    recent_messages: list[dict[str, Any]],
+    thinking_enabled: bool = False,
+    temperature_preset: str = "medium",
+) -> str:
+    prompt = _answer_prompt_with_memory(
+        message=message,
+        session_state=session_state,
+        shared_memories=shared_memories,
+        skill_memories=skill_memories,
+        recent_messages=recent_messages,
+        thinking_enabled=thinking_enabled,
+    )
     answer = await llm_client.complete_prompt(
         prompt,
         max_tokens=128,
@@ -319,6 +341,60 @@ async def _answer_chat_message_with_memory(
     )
     answer = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", answer)
     return MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(answer)).strip()
+
+
+def _sse_event(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def _json_response_content(response: JSONResponse) -> dict[str, Any]:
+    try:
+        content = json.loads(response.body.decode("utf-8"))
+    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+        content = {"status": "error", "message": "Unexpected response from API."}
+    return content if isinstance(content, dict) else {"status": "error", "message": "Unexpected response from API."}
+
+
+async def _stream_answer_with_memory(
+    *,
+    message: str,
+    session_state: dict[str, Any],
+    shared_memories: list[dict[str, Any]],
+    skill_memories: list[dict[str, Any]],
+    recent_messages: list[dict[str, Any]],
+    thinking_enabled: bool,
+    temperature_preset: str,
+) -> AsyncIterator[str]:
+    prompt = _answer_prompt_with_memory(
+        message=message,
+        session_state=session_state,
+        shared_memories=shared_memories,
+        skill_memories=skill_memories,
+        recent_messages=recent_messages,
+        thinking_enabled=thinking_enabled,
+    )
+    raw_answer = ""
+    visible_answer = ""
+    async for chunk in llm_client.stream_prompt(
+        prompt,
+        max_tokens=128,
+        stop=["User:", "\nUser:", "\nAssistant:"],
+        temperature=_temperature_for_preset(temperature_preset),
+    ):
+        raw_answer += chunk
+        lowered = raw_answer.lower()
+        if "<think" in lowered and "</think>" not in lowered:
+            continue
+        cleaned = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(raw_answer)).strip()
+        if cleaned.startswith(visible_answer):
+            delta = cleaned[len(visible_answer) :]
+            if delta:
+                visible_answer = cleaned
+                yield delta
+
+    final_answer = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(raw_answer)).strip()
+    if final_answer and final_answer != visible_answer and final_answer.startswith(visible_answer):
+        yield final_answer[len(visible_answer) :]
 
 
 @router.post("", response_model=None)
@@ -536,3 +612,98 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         client_id=payload.client_id,
     )
     return response
+
+
+@router.post("/stream", response_class=StreamingResponse)
+async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
+    async def events() -> AsyncIterator[str]:
+        ensure_chat_schema()
+        thread = ensure_chat_thread(
+            chat_id=payload.chat_id,
+            user_id=payload.user_id,
+            business_profile_id=payload.business_profile_id,
+            client_id=payload.client_id,
+            title=payload.message[:80],
+        )
+        chat_id = thread["id"]
+        stream_payload = payload.model_copy(update={"chat_id": chat_id})
+        yield _sse_event("start", {"chat_id": chat_id})
+
+        session_state = get_session_state(chat_id)
+        if _pending_memory_value_from_message(payload.message, session_state):
+            response = await chat(stream_payload)
+            content = _json_response_content(response) if isinstance(response, JSONResponse) else response
+            yield _sse_event("final", content)
+            return
+
+        try:
+            decision = await _decide_chat_action(payload.message)
+        except LlmServiceError:
+            append_chat_message(chat_id=chat_id, role="user", content=payload.message)
+            response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
+            append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
+            yield _sse_event("final", response_body)
+            return
+        except (ValueError, ValidationError):
+            append_chat_message(chat_id=chat_id, role="user", content=payload.message)
+            response_body = {"status": "ai_parse_error", "message": CHAT_PARSE_ERROR_MESSAGE, "chat_id": chat_id}
+            append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
+            yield _sse_event("final", response_body)
+            return
+
+        decision = _guard_chat_decision(payload.message, decision)
+        action = decision.action
+        if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
+            action = "create_invoice"
+
+        if action != "answer":
+            response = await chat(stream_payload)
+            content = _json_response_content(response) if isinstance(response, JSONResponse) else response
+            yield _sse_event("final", content)
+            return
+
+        append_chat_message(chat_id=chat_id, role="user", content=payload.message)
+        recent_messages = list_chat_messages(chat_id, limit=12)
+        shared_memories = list_shared_memories(
+            user_id=payload.user_id,
+            business_profile_id=payload.business_profile_id,
+            client_id=payload.client_id,
+        )
+        skill_memories = list_skill_memories(
+            user_id=payload.user_id,
+            business_profile_id=payload.business_profile_id,
+            client_id=payload.client_id,
+        )
+
+        answer = ""
+        try:
+            async for delta in _stream_answer_with_memory(
+                message=payload.message,
+                session_state=session_state,
+                shared_memories=shared_memories,
+                skill_memories=skill_memories,
+                recent_messages=recent_messages,
+                thinking_enabled=payload.thinking_enabled,
+                temperature_preset=payload.temperature_preset,
+            ):
+                answer += delta
+                yield _sse_event("token", {"content": delta})
+        except LlmServiceError:
+            response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
+            append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
+            yield _sse_event("final", response_body)
+            return
+
+        answer = answer.strip() or "How can I help?"
+        response = {"status": "answer", "message": answer, "chat_id": chat_id}
+        append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
+        await _learn_from_turn(
+            user_id=payload.user_id,
+            chat_id=chat_id,
+            session_state=session_state,
+            business_profile_id=payload.business_profile_id,
+            client_id=payload.client_id,
+        )
+        yield _sse_event("final", response)
+
+    return StreamingResponse(events(), media_type="text/event-stream")

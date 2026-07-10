@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncIterator
+import json
 import logging
 import time
 from urllib.parse import urljoin
@@ -126,6 +128,74 @@ class LlmClient:
             **include_llm_payload(raw_response=content),
         )
         return content.strip()
+
+    async def stream_prompt(
+        self,
+        prompt: str,
+        max_tokens: int | None = None,
+        stop: list[str] | None = None,
+        temperature: float | None = None,
+    ) -> AsyncIterator[str]:
+        payload = {
+            "prompt": prompt,
+            "n_predict": max_tokens if max_tokens is not None else LLM_MAX_TOKENS,
+            "temperature": temperature if temperature is not None else LLM_TEMPERATURE,
+            "stop": stop if stop is not None else ["User:"],
+            "stream": True,
+        }
+
+        started_at = time.perf_counter()
+        log_event(
+            "llm.stream.started",
+            endpoint=self.completion_url,
+            prompt_length=len(prompt),
+            max_tokens=payload["n_predict"],
+            temperature=payload["temperature"],
+            stop=payload["stop"],
+            **include_llm_payload(prompt=prompt),
+        )
+
+        try:
+            async with self._request_lock:
+                async with httpx.AsyncClient(
+                    timeout=LLM_TIMEOUT_SECONDS,
+                    trust_env=False,
+                ) as client:
+                    async with client.stream("POST", self.completion_url, json=payload) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            data_line = line.removeprefix("data:").strip()
+                            if not data_line or data_line == "[DONE]":
+                                continue
+                            try:
+                                data = json.loads(data_line)
+                            except json.JSONDecodeError:
+                                continue
+                            content = data.get("content")
+                            if isinstance(content, str) and content:
+                                yield content
+                            if data.get("stop") is True:
+                                break
+        except httpx.HTTPError as error:
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            log_event(
+                "llm.stream.failed",
+                level=logging.ERROR,
+                endpoint=self.completion_url,
+                duration_ms=round(duration_ms, 2),
+                error_type=type(error).__name__,
+                error=str(error),
+            )
+            raise LlmServiceError(f"Local LLM stream failed: {error}") from error
+
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        log_event(
+            "llm.stream.completed",
+            endpoint=self.completion_url,
+            duration_ms=round(duration_ms, 2),
+        )
 
 
 llm_client = LlmClient()

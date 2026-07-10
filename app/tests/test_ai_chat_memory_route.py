@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from app.routes.ai_chat import ChatDecision
-from app.routes.ai_chat_memory import AiChatMemoryRequest, _answer_chat_message_with_memory, chat
+from app.routes.ai_chat_memory import AiChatMemoryRequest, _answer_chat_message_with_memory, _stream_answer_with_memory, chat
 from app.schemas import InvoiceDraft
 from app.services import chat_schema, knowledge_store
 from app.services.chat_store import get_chat_thread, get_session_state, list_chat_messages
@@ -171,6 +171,27 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(answer, "Sounds great! Let's plan the details together.")
+
+    async def test_stream_answer_removes_thinking_before_tokens(self) -> None:
+        async def fake_stream(*_: object, **__: object):
+            for chunk in ["<think>hidden", " reasoning</think>", "Hi", "!"]:
+                yield chunk
+
+        with patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+            chunks = [
+                chunk
+                async for chunk in _stream_answer_with_memory(
+                    message="Hi",
+                    session_state={},
+                    shared_memories=[],
+                    skill_memories=[],
+                    recent_messages=[],
+                    thinking_enabled=True,
+                    temperature_preset="low",
+                )
+            ]
+
+        self.assertEqual("".join(chunks), "Hi!")
 
     async def test_memory_request_without_value_asks_for_value(self) -> None:
         with (
