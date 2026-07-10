@@ -417,7 +417,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             patch(
                 "app.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value="The number you asked me to remember is 1234."),
-            ),
+            ) as complete_mock,
         ):
             recall_response = await chat(
                 AiChatMemoryRequest(chat_id=chat_id, message="what number did I ask you to remember?")
@@ -425,6 +425,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(recall_response["status"], "answer")
         self.assertIn("1234", recall_response["message"])
+        self.assertEqual(complete_mock.await_args.kwargs["max_tokens"], 32)
+        self.assertIn("\n\n", complete_mock.await_args.kwargs["stop"])
 
         messages = list_chat_messages(chat_id)
         self.assertEqual([message["role"] for message in messages], ["user", "assistant", "user", "assistant"])

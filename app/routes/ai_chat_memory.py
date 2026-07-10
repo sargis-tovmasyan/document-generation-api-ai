@@ -328,8 +328,8 @@ async def _recall_memory_answer(message: str, shared_memories: list[dict[str, An
     )
     answer = await llm_client.complete_prompt(
         prompt,
-        max_tokens=96,
-        stop=["User:", "\nUser:", "\nAssistant:"],
+        max_tokens=32,
+        stop=["\n\n", "User:", "\nUser:", "\nAssistant:", "Saved facts:"],
         temperature=0.2,
     )
     return _clean_chat_answer(answer) or "I do not have anything saved for that yet."
