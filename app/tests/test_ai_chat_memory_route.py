@@ -426,7 +426,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recall_response["status"], "answer")
         self.assertIn("1234", recall_response["message"])
         self.assertEqual(complete_mock.await_args.kwargs["max_tokens"], 32)
-        self.assertIn("\n\n", complete_mock.await_args.kwargs["stop"])
+        self.assertIn("\n", complete_mock.await_args.kwargs["stop"])
 
         messages = list_chat_messages(chat_id)
         self.assertEqual([message["role"] for message in messages], ["user", "assistant", "user", "assistant"])
