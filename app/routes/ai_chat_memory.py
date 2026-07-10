@@ -248,7 +248,8 @@ def _asks_about_saved_memory(message: str) -> bool:
 
 
 def _clean_memory_safe_answer(message: str, answer: str, *, fallback: bool = True) -> str:
-    cleaned = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(answer)).strip()
+    cleaned = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", answer)
+    cleaned = MEMORY_CONTEXT_LEAK_PATTERN.sub(" ", _clean_chat_answer(cleaned)).strip()
     if _asks_about_saved_memory(message):
         return cleaned
     cleaned = MEMORY_DISCLAIMER_PATTERN.sub(" ", cleaned).strip()
