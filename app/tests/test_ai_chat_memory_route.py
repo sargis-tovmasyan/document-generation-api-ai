@@ -283,14 +283,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "app.routes.ai_chat_memory.llm_client.complete_prompt",
             AsyncMock(
-                side_effect=[
-                    '{"context":"none"}',
-                    (
-                        "Sounds great! Let's plan the details together. "
-                        "(memory context: The previous messages were about planning a BBQ.)"
-                        "\n\nThe only current message is: Lets made a BBQ!"
-                    ),
-                ]
+                return_value=(
+                    "Sounds great! Let's plan the details together. "
+                    "(memory context: The previous messages were about planning a BBQ.)"
+                    "\n\nThe only current message is: Lets made a BBQ!"
+                )
             ),
         ):
             answer = await _answer_chat_message_with_memory(
