@@ -59,32 +59,11 @@ NUMBER_VALUE_PATTERN = re.compile(
     r"\b(?:number|code|pin)\s*(?::|=|\bis\b)?\s*([A-Za-z0-9][A-Za-z0-9._-]*)\b",
     re.IGNORECASE,
 )
-ORDINAL_PATTERN = re.compile(
-    r"\b(?:(?P<number>\d+)(?:st|nd|rd|th)?|(?P<word>first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth))\b",
-    re.IGNORECASE,
-)
-RECENT_LIST_REFERENCE_PATTERN = re.compile(
-    r"\b(?:you\s+(?:named|listed|said|gave|mentioned)|recently|previous(?:ly)?|earlier|before|last answer|above)\b",
-    re.IGNORECASE,
-)
-NUMBERED_ITEM_PATTERN = re.compile(r"(?<!\w)(\d+)\s*[\).\:-]\s*")
 EXPLICIT_REMEMBER_PATTERN = re.compile(
     r"\b(?:remember|memorize|save)\b(?:\s+that)?\s+(?P<memory>.+)",
     re.IGNORECASE | re.DOTALL,
 )
 IGNORED_MEMORY_VALUES = {"a", "an", "and", "for", "me", "the", "this", "that", "it"}
-ORDINAL_WORDS = {
-    "first": 1,
-    "second": 2,
-    "third": 3,
-    "fourth": 4,
-    "fifth": 5,
-    "sixth": 6,
-    "seventh": 7,
-    "eighth": 8,
-    "ninth": 9,
-    "tenth": 10,
-}
 
 MEMORY_EXTRACT_SCHEMA = {
     "type": "object",
@@ -95,11 +74,23 @@ MEMORY_EXTRACT_SCHEMA = {
     "required": ["has_memory", "memory"],
     "additionalProperties": False,
 }
+RECENT_CONTEXT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "uses_recent_context": {"type": "boolean"},
+    },
+    "required": ["uses_recent_context"],
+    "additionalProperties": False,
+}
 
 
 class MemoryExtract(BaseModel):
     has_memory: bool
     memory: str = Field(default="", max_length=1000)
+
+
+class RecentContextDecision(BaseModel):
+    uses_recent_context: bool
 
 
 class AiChatMemoryRequest(BaseModel):
@@ -143,6 +134,17 @@ def _load_memory_extract(content: str) -> MemoryExtract:
         return MemoryExtract.model_validate_json(content[start : end + 1])
 
 
+def _load_recent_context_decision(content: str) -> RecentContextDecision:
+    try:
+        return RecentContextDecision.model_validate_json(content)
+    except ValueError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        return RecentContextDecision.model_validate_json(content[start : end + 1])
+
+
 async def _extract_memory_to_save(message: str) -> MemoryExtract:
     prompt = (
         "Extract the concrete information the user explicitly wants the assistant to remember. "
@@ -165,6 +167,54 @@ async def _extract_memory_to_save(message: str) -> MemoryExtract:
         temperature=0.2,
     )
     return _load_memory_extract(content)
+
+
+async def _uses_recent_context(message: str, recent_messages: list[dict[str, Any]]) -> bool:
+    if not recent_messages:
+        return False
+
+    context = "\n".join(
+        f"{recent_message['role']}: {recent_message['content']}"
+        for recent_message in recent_messages[-8:]
+    )
+    prompt = (
+        "Decide whether the current user message asks the assistant to answer using the recent chat history. "
+        "Return true when the user asks about something the assistant previously named, listed, said, mentioned, or explained. "
+        "Return false when the user asks to save new information, or asks about explicitly saved remembered facts. "
+        "Return JSON only.\n\n"
+        "Examples:\n"
+        "Recent assistant: 1. Rose, 2. Sunflower, 3. Tulip.\n"
+        "User: what is the 3rd flower you named?\n"
+        "{\"uses_recent_context\":true}\n"
+        "Recent assistant: Got it. I will remember that.\n"
+        "User: what number did I ask you to remember?\n"
+        "{\"uses_recent_context\":false}\n\n"
+        f"Recent messages:\n{context}\n\n"
+        f"Current user message: {message}\n"
+        "JSON:"
+    )
+    content = await llm_client.complete_prompt(
+        prompt,
+        json_schema=RECENT_CONTEXT_SCHEMA,
+        max_tokens=32,
+        temperature=0.1,
+    )
+    return _load_recent_context_decision(content).uses_recent_context
+
+
+async def _should_route_as_recent_context(
+    *,
+    action: str,
+    message: str,
+    recent_messages: list[dict[str, Any]],
+) -> bool:
+    if action not in {"remember_memory", "recall_memory"}:
+        return False
+    try:
+        return await _uses_recent_context(message, recent_messages)
+    except (LlmServiceError, ValueError, ValidationError) as error:
+        logger.warning("recent context decision failed: %s", error)
+        return False
 
 
 def _format_saved_memory(memory: str) -> str:
@@ -299,53 +349,6 @@ def _answer_letter_count_question(message: str) -> str | None:
     return f'There {"is" if count == 1 else "are"} {count} "{char}" letter{plural} in "{text}".'
 
 
-def _ordinal_from_message(message: str) -> int | None:
-    match = ORDINAL_PATTERN.search(message)
-    if not match:
-        return None
-    if match.group("number"):
-        return int(match.group("number"))
-    return ORDINAL_WORDS.get(match.group("word").lower())
-
-
-def _should_answer_from_recent_list(message: str) -> bool:
-    return bool(_ordinal_from_message(message) and RECENT_LIST_REFERENCE_PATTERN.search(message))
-
-
-def _numbered_items_from_text(text: str) -> dict[int, str]:
-    matches = list(NUMBERED_ITEM_PATTERN.finditer(text))
-    items: dict[int, str] = {}
-    for index, match in enumerate(matches):
-        start = match.end()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        item = text[start:end].strip(" \t\r\n,;")
-        if item:
-            items[int(match.group(1))] = item
-    return items
-
-
-def _answer_recent_list_question(message: str, recent_messages: list[dict[str, Any]]) -> str | None:
-    ordinal = _ordinal_from_message(message)
-    if not ordinal or not _should_answer_from_recent_list(message):
-        return None
-
-    for recent_message in reversed(recent_messages):
-        if recent_message.get("role") != "assistant":
-            continue
-        items = _numbered_items_from_text(str(recent_message.get("content", "")))
-        if ordinal in items:
-            return f"The {_ordinal_label(ordinal)} item I named was {items[ordinal]}."
-    return None
-
-
-def _ordinal_label(value: int) -> str:
-    if 10 <= value % 100 <= 20:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
-    return f"{value}{suffix}"
-
-
 def _is_partial_memory_disclaimer(message: str, answer: str) -> bool:
     if _asks_about_saved_memory(message):
         return False
@@ -454,9 +457,6 @@ async def _answer_chat_message_with_memory(
     letter_count_answer = _answer_letter_count_question(message)
     if letter_count_answer:
         return letter_count_answer
-    recent_list_answer = _answer_recent_list_question(message, recent_messages)
-    if recent_list_answer:
-        return recent_list_answer
 
     prompt = _answer_prompt_with_memory(
         message=message,
@@ -500,10 +500,6 @@ async def _stream_answer_with_memory(
     letter_count_answer = _answer_letter_count_question(message)
     if letter_count_answer:
         yield letter_count_answer
-        return
-    recent_list_answer = _answer_recent_list_question(message, recent_messages)
-    if recent_list_answer:
-        yield recent_list_answer
         return
 
     prompt = _answer_prompt_with_memory(
@@ -598,7 +594,11 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
     action = decision.action
     if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
         action = "create_invoice"
-    elif _should_answer_from_recent_list(payload.message):
+    elif await _should_route_as_recent_context(
+        action=action,
+        message=payload.message,
+        recent_messages=recent_messages,
+    ):
         action = "answer"
 
     if action == "remember_memory":
@@ -802,7 +802,11 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         action = decision.action
         if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
             action = "create_invoice"
-        elif _should_answer_from_recent_list(payload.message):
+        elif await _should_route_as_recent_context(
+            action=action,
+            message=payload.message,
+            recent_messages=list_chat_messages(chat_id, limit=12),
+        ):
             action = "answer"
 
         if action != "answer":

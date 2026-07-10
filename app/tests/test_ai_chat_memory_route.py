@@ -415,6 +415,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                 "app.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory")),
             ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(side_effect=['{"uses_recent_context":true}', "The 3rd flower was Tulip."]),
+            ),
             patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             second_response = await chat(
