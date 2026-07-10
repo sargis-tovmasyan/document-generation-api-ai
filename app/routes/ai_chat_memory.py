@@ -50,10 +50,6 @@ MEMORY_DISCLAIMER_PATTERN = re.compile(
     r"(?:^|\s+)I\s+(?:do\s+not|don't)\s+have\s+(?:access\s+to\s+)?memory\.?\s*",
     re.IGNORECASE,
 )
-LETTER_COUNT_PATTERN = re.compile(
-    r"\bhow\s+many\s+['\"]?(?P<char>[A-Za-z])['\"]?\s+(?:are\s+)?(?:in|inside)\s+['\"](?P<text>[^'\"]+)['\"]",
-    re.IGNORECASE,
-)
 NUMBER_RECALL_PATTERN = re.compile(r"\b(?:number|code|pin)\b", re.IGNORECASE)
 NUMBER_VALUE_PATTERN = re.compile(
     r"\b(?:number|code|pin)\s*(?::|=|\bis\b)?\s*([A-Za-z0-9][A-Za-z0-9._-]*)\b",
@@ -77,9 +73,9 @@ MEMORY_EXTRACT_SCHEMA = {
 RECENT_CONTEXT_SCHEMA = {
     "type": "object",
     "properties": {
-        "uses_recent_context": {"type": "boolean"},
+        "context": {"type": "string", "enum": ["none", "recent_chat", "saved_memory", "both"]},
     },
-    "required": ["uses_recent_context"],
+    "required": ["context"],
     "additionalProperties": False,
 }
 
@@ -90,7 +86,7 @@ class MemoryExtract(BaseModel):
 
 
 class RecentContextDecision(BaseModel):
-    uses_recent_context: bool
+    context: str = Field(pattern="^(none|recent_chat|saved_memory|both)$")
 
 
 class AiChatMemoryRequest(BaseModel):
@@ -169,27 +165,38 @@ async def _extract_memory_to_save(message: str) -> MemoryExtract:
     return _load_memory_extract(content)
 
 
-async def _uses_recent_context(message: str, recent_messages: list[dict[str, Any]]) -> bool:
-    if not recent_messages:
-        return False
-
-    context = "\n".join(
+async def _select_answer_context(
+    *,
+    message: str,
+    recent_messages: list[dict[str, Any]],
+    shared_memories: list[dict[str, Any]],
+    skill_memories: list[dict[str, Any]],
+) -> str:
+    recent_context = "\n".join(
         f"{recent_message['role']}: {recent_message['content']}"
         for recent_message in recent_messages[-8:]
-    )
+    ) or "None"
+    saved_context_parts = [str(memory.get("content", "")) for memory in shared_memories]
+    saved_context_parts.extend(f"{skill.get('title', '')}: {skill.get('description', '')}" for skill in skill_memories)
+    saved_context = "\n".join(part for part in saved_context_parts if part.strip()) or "None"
     prompt = (
-        "Decide whether the current user message asks the assistant to answer using the recent chat history. "
-        "Return true when the user asks about something the assistant previously named, listed, said, mentioned, or explained. "
-        "Return false when the user asks to save new information, or asks about explicitly saved remembered facts. "
+        "Choose which context the assistant needs to answer the current user message. "
+        "Use none for greetings, normal questions, and new requests that can be answered directly. "
+        "Use recent_chat when the user asks about something said, named, listed, or discussed earlier in this same chat. "
+        "Use saved_memory when the user asks about information explicitly saved for later. "
+        "Use both only when both recent chat and saved facts are required. "
         "Return JSON only.\n\n"
         "Examples:\n"
-        "Recent assistant: 1. Rose, 2. Sunflower, 3. Tulip.\n"
+        "User: Hi\n"
+        "{\"context\":\"none\"}\n"
+        "User: name 5 flowers\n"
+        "{\"context\":\"none\"}\n"
         "User: what is the 3rd flower you named?\n"
-        "{\"uses_recent_context\":true}\n"
-        "Recent assistant: Got it. I will remember that.\n"
+        "{\"context\":\"recent_chat\"}\n"
         "User: what number did I ask you to remember?\n"
-        "{\"uses_recent_context\":false}\n\n"
-        f"Recent messages:\n{context}\n\n"
+        "{\"context\":\"saved_memory\"}\n\n"
+        f"Recent chat:\n{recent_context}\n\n"
+        f"Saved facts:\n{saved_context}\n\n"
         f"Current user message: {message}\n"
         "JSON:"
     )
@@ -199,19 +206,31 @@ async def _uses_recent_context(message: str, recent_messages: list[dict[str, Any
         max_tokens=32,
         temperature=0.1,
     )
-    return _load_recent_context_decision(content).uses_recent_context
+    try:
+        return _load_recent_context_decision(content).context
+    except (ValueError, ValidationError) as error:
+        logger.warning("answer context selection failed: %s", error)
+        return "none"
 
 
-async def _should_route_as_recent_context(
+async def _should_route_as_answer_from_recent_context(
     *,
     action: str,
     message: str,
     recent_messages: list[dict[str, Any]],
+    shared_memories: list[dict[str, Any]],
+    skill_memories: list[dict[str, Any]],
 ) -> bool:
     if action not in {"remember_memory", "recall_memory"}:
         return False
     try:
-        return await _uses_recent_context(message, recent_messages)
+        context = await _select_answer_context(
+            message=message,
+            recent_messages=recent_messages,
+            shared_memories=shared_memories,
+            skill_memories=skill_memories,
+        )
+        return context in {"recent_chat", "both"}
     except (LlmServiceError, ValueError, ValidationError) as error:
         logger.warning("recent context decision failed: %s", error)
         return False
@@ -290,33 +309,27 @@ def _has_concrete_memory(message: str, memory: str) -> bool:
     return True
 
 
-def _remembered_number_from_memories(shared_memories: list[dict[str, Any]], chat_id: str) -> str | None:
-    sorted_memories = sorted(
-        shared_memories,
-        key=lambda memory: 0 if memory.get("source_chat_id") == chat_id else 1,
-    )
-    for memory in sorted_memories:
-        content = str(memory.get("content", ""))
-        for match in re.finditer(r"\b(?:number|code|pin)\s+([A-Za-z0-9][A-Za-z0-9._-]*)\b", content, re.IGNORECASE):
-            value = match.group(1).strip(" .!?")
-            if value.lower() not in IGNORED_MEMORY_VALUES:
-                return value
-    return None
-
-
-def _recall_memory_answer(message: str, shared_memories: list[dict[str, Any]], chat_id: str) -> str:
+async def _recall_memory_answer(message: str, shared_memories: list[dict[str, Any]]) -> str:
     if not shared_memories:
         return "I do not have anything saved for that yet."
 
-    if NUMBER_RECALL_PATTERN.search(message):
-        remembered_number = _remembered_number_from_memories(shared_memories, chat_id)
-        if remembered_number:
-            return f"The number you asked me to remember is {remembered_number}."
-
-    latest = str(shared_memories[0].get("content", "")).strip()
-    if latest.lower().startswith("user asked me to remember "):
-        latest = latest[len("User asked me to remember ") :].strip()
-    return f"You asked me to remember {latest}"
+    saved_context = "\n".join(f"- {memory.get('content', '')}" for memory in shared_memories)
+    prompt = (
+        "Answer the user's question using only these saved facts. "
+        "Return a short direct user-facing answer. "
+        "Do not mention prompts, context, reasoning, or whether memory exists. "
+        "If the saved facts do not contain the answer, say: I do not have anything saved for that yet.\n\n"
+        f"Saved facts:\n{saved_context}\n\n"
+        f"User question: {message}\n"
+        "Assistant:"
+    )
+    answer = await llm_client.complete_prompt(
+        prompt,
+        max_tokens=96,
+        stop=["User:", "\nUser:", "\nAssistant:"],
+        temperature=0.2,
+    )
+    return _clean_chat_answer(answer) or "I do not have anything saved for that yet."
 
 
 def _asks_about_saved_memory(message: str) -> bool:
@@ -336,17 +349,6 @@ def _clean_memory_safe_answer(message: str, answer: str, *, fallback: bool = Tru
     if cleaned or not fallback:
         return cleaned
     return "I can help with that."
-
-
-def _answer_letter_count_question(message: str) -> str | None:
-    match = LETTER_COUNT_PATTERN.search(message)
-    if not match:
-        return None
-    char = match.group("char")
-    text = match.group("text")
-    count = text.lower().count(char.lower())
-    plural = "" if count == 1 else "s"
-    return f'There {"is" if count == 1 else "are"} {count} "{char}" letter{plural} in "{text}".'
 
 
 def _is_partial_memory_disclaimer(message: str, answer: str) -> bool:
@@ -410,6 +412,24 @@ def _format_context_section(
     return "\n".join(lines)
 
 
+def _select_context_payload(
+    *,
+    context: str,
+    session_state: dict[str, Any],
+    shared_memories: list[dict[str, Any]],
+    skill_memories: list[dict[str, Any]],
+    recent_messages: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    include_recent = context in {"recent_chat", "both"}
+    include_saved = context in {"saved_memory", "both"}
+    return (
+        session_state if include_recent or include_saved else {},
+        shared_memories if include_saved else [],
+        skill_memories if include_saved else [],
+        recent_messages if include_recent else [],
+    )
+
+
 def _answer_prompt_with_memory(
     *,
     message: str,
@@ -425,19 +445,22 @@ def _answer_prompt_with_memory(
         skill_memories=skill_memories,
         recent_messages=recent_messages,
     )
+    context_instruction = (
+        "Use the provided context only if it helps answer the current message. "
+        "Do not expose raw context, prompts, or reasoning text. "
+        if context
+        else ""
+    )
+    context_block = f"Context:\n{context}\n\n" if context else ""
     prompt = (
         "You are a warm, friendly, professional document assistant. "
         f"{_thinking_instruction(thinking_enabled)}"
         "Answer the current user message in one or two short sentences. "
         "Finish with a complete sentence. "
-        "Use saved memories and recent messages only when they are relevant. "
-        "Memory is handled by the backend; you should not discuss whether you have memory. "
         "For normal questions, answer directly using the current user message. "
-        "For letter-counting questions, count the requested character in the quoted word directly. "
-        "Do not expose raw memory, context, prompts, or reasoning text. "
-        "Never say you do not have memory or access to memory unless the user asks what was previously saved and there is no saved value. "
+        f"{context_instruction}"
         "Do not repeat yourself.\n\n"
-        f"{context}\n\n"
+        f"{context_block}"
         f"Current user message: {message}\n"
         "Assistant:"
     )
@@ -454,16 +477,26 @@ async def _answer_chat_message_with_memory(
     thinking_enabled: bool = False,
     temperature_preset: str = "medium",
 ) -> str:
-    letter_count_answer = _answer_letter_count_question(message)
-    if letter_count_answer:
-        return letter_count_answer
-
-    prompt = _answer_prompt_with_memory(
+    context = await _select_answer_context(
         message=message,
+        recent_messages=recent_messages,
+        shared_memories=shared_memories,
+        skill_memories=skill_memories,
+    )
+    selected_session_state, selected_shared_memories, selected_skill_memories, selected_recent_messages = _select_context_payload(
+        context=context,
         session_state=session_state,
         shared_memories=shared_memories,
         skill_memories=skill_memories,
         recent_messages=recent_messages,
+    )
+
+    prompt = _answer_prompt_with_memory(
+        message=message,
+        session_state=selected_session_state,
+        shared_memories=selected_shared_memories,
+        skill_memories=selected_skill_memories,
+        recent_messages=selected_recent_messages,
         thinking_enabled=thinking_enabled,
     )
     answer = await llm_client.complete_prompt(
@@ -497,17 +530,26 @@ async def _stream_answer_with_memory(
     thinking_enabled: bool,
     temperature_preset: str,
 ) -> AsyncIterator[str]:
-    letter_count_answer = _answer_letter_count_question(message)
-    if letter_count_answer:
-        yield letter_count_answer
-        return
-
-    prompt = _answer_prompt_with_memory(
+    context = await _select_answer_context(
         message=message,
+        recent_messages=recent_messages,
+        shared_memories=shared_memories,
+        skill_memories=skill_memories,
+    )
+    selected_session_state, selected_shared_memories, selected_skill_memories, selected_recent_messages = _select_context_payload(
+        context=context,
         session_state=session_state,
         shared_memories=shared_memories,
         skill_memories=skill_memories,
         recent_messages=recent_messages,
+    )
+
+    prompt = _answer_prompt_with_memory(
+        message=message,
+        session_state=selected_session_state,
+        shared_memories=selected_shared_memories,
+        skill_memories=selected_skill_memories,
+        recent_messages=selected_recent_messages,
         thinking_enabled=thinking_enabled,
     )
     raw_answer = ""
@@ -594,10 +636,12 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
     action = decision.action
     if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
         action = "create_invoice"
-    elif await _should_route_as_recent_context(
+    elif await _should_route_as_answer_from_recent_context(
         action=action,
         message=payload.message,
         recent_messages=recent_messages,
+        shared_memories=shared_memories,
+        skill_memories=skill_memories,
     ):
         action = "answer"
 
@@ -648,7 +692,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
             business_profile_id=payload.business_profile_id,
             client_id=payload.client_id,
         )
-        answer = _recall_memory_answer(payload.message, shared_memories, chat_id)
+        answer = await _recall_memory_answer(payload.message, shared_memories)
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
         return response
@@ -802,10 +846,20 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         action = decision.action
         if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
             action = "create_invoice"
-        elif await _should_route_as_recent_context(
+        elif await _should_route_as_answer_from_recent_context(
             action=action,
             message=payload.message,
             recent_messages=list_chat_messages(chat_id, limit=12),
+            shared_memories=list_shared_memories(
+                user_id=payload.user_id,
+                business_profile_id=payload.business_profile_id,
+                client_id=payload.client_id,
+            ),
+            skill_memories=list_skill_memories(
+                user_id=payload.user_id,
+                business_profile_id=payload.business_profile_id,
+                client_id=payload.client_id,
+            ),
         ):
             action = "answer"
 

@@ -8,6 +8,7 @@ from app.routes.ai_chat import ChatDecision
 from app.routes.ai_chat_memory import (
     AiChatMemoryRequest,
     _answer_chat_message_with_memory,
+    _answer_prompt_with_memory,
     _clean_memory_safe_answer,
     _stream_answer_with_memory,
     chat,
@@ -135,10 +136,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["status"], "answer")
         list_invoices_mock.assert_not_called()
 
-    async def test_answer_prompt_uses_memory_context(self) -> None:
+    async def test_answer_prompt_uses_selected_memory_context(self) -> None:
         with patch(
             "app.routes.ai_chat_memory.llm_client.complete_prompt",
-            AsyncMock(return_value="Use USD for Alex."),
+            AsyncMock(side_effect=['{"context":"saved_memory"}', "Use USD for Alex."]),
         ) as complete_mock:
             answer = await _answer_chat_message_with_memory(
                 message="What currency should I use?",
@@ -150,12 +151,60 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(answer, "Use USD for Alex.")
-        prompt = complete_mock.call_args.args[0]
+        prompt = complete_mock.call_args_list[1].args[0]
         self.assertIn("Client Alex usually uses USD.", prompt)
-        self.assertIn("This is for Alex.", prompt)
         self.assertIn("You may reason internally", prompt)
-        self.assertIn("Memory is handled by the backend", prompt)
-        self.assertIn("Never say you do not have memory", prompt)
+        self.assertNotIn("Memory is handled by the backend", prompt)
+        self.assertNotIn("Never say you do not have memory", prompt)
+
+    def test_normal_answer_prompt_has_no_memory_wording_without_context(self) -> None:
+        prompt = _answer_prompt_with_memory(
+            message="name 5 flowers",
+            session_state={},
+            shared_memories=[],
+            skill_memories=[],
+            recent_messages=[],
+        )
+
+        self.assertNotIn("memory", prompt.lower())
+        self.assertNotIn("saved", prompt.lower())
+        self.assertNotIn("Recent messages", prompt)
+
+    async def test_greeting_uses_no_context_and_no_memory_text(self) -> None:
+        with patch(
+            "app.routes.ai_chat_memory.llm_client.complete_prompt",
+            AsyncMock(side_effect=['{"context":"none"}', "Hi, how can I help?"]),
+        ) as complete_mock:
+            answer = await _answer_chat_message_with_memory(
+                message="Hi",
+                session_state={},
+                shared_memories=[{"content": "User asked me to remember number 42."}],
+                skill_memories=[],
+                recent_messages=[{"role": "assistant", "content": "Previous answer."}],
+            )
+
+        self.assertEqual(answer, "Hi, how can I help?")
+        prompt = complete_mock.call_args_list[1].args[0]
+        self.assertNotIn("User asked me to remember number 42", prompt)
+        self.assertNotIn("memory", answer.lower())
+
+    async def test_flower_request_uses_no_context_and_no_memory_text(self) -> None:
+        with patch(
+            "app.routes.ai_chat_memory.llm_client.complete_prompt",
+            AsyncMock(side_effect=['{"context":"none"}', "1. Rose, 2. Sunflower, 3. Tulip, 4. Daisy, 5. Lily."]),
+        ) as complete_mock:
+            answer = await _answer_chat_message_with_memory(
+                message="name 5 flowers! and give them a number like 1. something, 2. something ...",
+                session_state={},
+                shared_memories=[{"content": "User asked me to remember color Blue."}],
+                skill_memories=[],
+                recent_messages=[{"role": "assistant", "content": "The number is 9876."}],
+            )
+
+        self.assertIn("1. Rose", answer)
+        self.assertNotIn("memory", answer.lower())
+        prompt = complete_mock.call_args_list[1].args[0]
+        self.assertNotIn("User asked me to remember color Blue", prompt)
 
     def test_normal_answer_removes_memory_disclaimer(self) -> None:
         answer = _clean_memory_safe_answer(
@@ -171,7 +220,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("You may reason internally", prompt)
             yield "There are two r letters."
 
-        with patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+        with (
+            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+        ):
             chunks = [
                 chunk
                 async for chunk in _stream_answer_with_memory(
@@ -187,19 +239,26 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("".join(chunks), "There are two r letters.")
 
-    async def test_stream_answer_counts_quoted_letters_without_memory_disclaimer(self) -> None:
-        chunks = [
-            chunk
-            async for chunk in _stream_answer_with_memory(
-                message='How many r in "raspberry"?',
-                session_state={},
-                shared_memories=[],
-                skill_memories=[],
-                recent_messages=[],
-                thinking_enabled=False,
-                temperature_preset="low",
-            )
-        ]
+    async def test_stream_answer_handles_letter_count_without_memory_disclaimer(self) -> None:
+        async def fake_stream(*_: object, **__: object):
+            yield 'There are 3 "r" letters in "raspberry".'
+
+        with (
+            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+        ):
+            chunks = [
+                chunk
+                async for chunk in _stream_answer_with_memory(
+                    message='How many r in "raspberry"?',
+                    session_state={},
+                    shared_memories=[],
+                    skill_memories=[],
+                    recent_messages=[],
+                    thinking_enabled=False,
+                    temperature_preset="low",
+                )
+            ]
 
         answer = "".join(chunks)
         self.assertNotIn("memory", answer.lower())
@@ -209,11 +268,14 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "app.routes.ai_chat_memory.llm_client.complete_prompt",
             AsyncMock(
-                return_value=(
-                    "Sounds great! Let's plan the details together. "
-                    "(memory context: The previous messages were about planning a BBQ.)"
-                    "\n\nThe only current message is: Lets made a BBQ!"
-                )
+                side_effect=[
+                    '{"context":"none"}',
+                    (
+                        "Sounds great! Let's plan the details together. "
+                        "(memory context: The previous messages were about planning a BBQ.)"
+                        "\n\nThe only current message is: Lets made a BBQ!"
+                    ),
+                ]
             ),
         ):
             answer = await _answer_chat_message_with_memory(
@@ -231,7 +293,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             for chunk in ["<think>hidden", " reasoning</think>", "Hi", "!"]:
                 yield chunk
 
-        with patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+        with (
+            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+        ):
             chunks = [
                 chunk
                 async for chunk in _stream_answer_with_memory(
@@ -252,7 +317,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             for chunk in ["I don't have access", " to memory. ", "There are two r letters."]:
                 yield chunk
 
-        with patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+        with (
+            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+        ):
             chunks = [
                 chunk
                 async for chunk in _stream_answer_with_memory(
@@ -275,7 +343,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             for chunk in ["I", " don", "'t"]:
                 yield chunk
 
-        with patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+        with (
+            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+        ):
             chunks = [
                 chunk
                 async for chunk in _stream_answer_with_memory(
@@ -326,9 +397,15 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(remember_response["status"], "answer")
         self.assertIn("remember", remember_response["message"].lower())
 
-        with patch(
-            "app.routes.ai_chat_memory._decide_chat_action",
-            AsyncMock(return_value=ChatDecision(action="recall_memory")),
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="recall_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value="The number you asked me to remember is 1234."),
+            ),
         ):
             recall_response = await chat(
                 AiChatMemoryRequest(chat_id=chat_id, message="what number did I ask you to remember?")
@@ -354,9 +431,15 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             remember_response = await chat(AiChatMemoryRequest(message="remember number 1234"))
 
         chat_id = remember_response["chat_id"]
-        with patch(
-            "app.routes.ai_chat_memory._decide_chat_action",
-            AsyncMock(return_value=ChatDecision(action="recall_memory")),
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="recall_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value="The number you asked me to remember is 1234."),
+            ),
         ):
             recall_response = await chat(
                 AiChatMemoryRequest(chat_id=chat_id, message="what number did I ask you to remember?")
@@ -386,9 +469,15 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(second_response["message"], "Got it. I will remember that.")
 
-        with patch(
-            "app.routes.ai_chat_memory._decide_chat_action",
-            AsyncMock(return_value=ChatDecision(action="recall_memory")),
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="recall_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value="The number you asked me to remember is 42."),
+            ),
         ):
             recall_response = await chat(
                 AiChatMemoryRequest(chat_id=chat_id, message="whats the number I asked to remember?")
@@ -417,7 +506,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "app.routes.ai_chat_memory.llm_client.complete_prompt",
-                AsyncMock(side_effect=['{"uses_recent_context":true}', "The 3rd flower was Tulip."]),
+                AsyncMock(side_effect=['{"context":"recent_chat"}', '{"context":"recent_chat"}', "The 3rd flower was Tulip."]),
             ),
             patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
@@ -444,6 +533,35 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response["status"], "answer")
         self.assertEqual(response["message"], "Got it. I will remember that.")
+
+    async def test_remembers_and_recalls_color(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"has_memory":true,"memory":"color Blue"}'),
+            ),
+        ):
+            remember_response = await chat(AiChatMemoryRequest(message="remember color Blue"))
+
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="recall_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value="The color you asked me to remember is Blue."),
+            ),
+        ):
+            recall_response = await chat(
+                AiChatMemoryRequest(chat_id=remember_response["chat_id"], message="what color did I ask you to remember?")
+            )
+
+        self.assertIn("Blue", recall_response["message"])
 
 
 if __name__ == "__main__":
