@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 InvoiceTemplateLanguage = Literal["ru", "en"]
+DynamicFormFieldType = Literal["text", "textarea", "date", "number", "email", "select", "line_items"]
 
 
 class Party(BaseModel):
@@ -201,6 +202,15 @@ class InvoiceDraft(BaseModel):
         return self
 
 
+class DynamicFormField(BaseModel):
+    key: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=120)
+    type: DynamicFormFieldType
+    required: bool = True
+    placeholder: str | None = Field(default=None, max_length=500)
+    options: list[str] | None = None
+
+
 class AiInvoiceExtractRequest(AiTestRequest):
     pass
 
@@ -209,6 +219,7 @@ class AiInvoiceExtractResponse(BaseModel):
     status: Literal["missing_fields", "ready"]
     draft: InvoiceDraft
     missing_fields: list[str]
+    fields_to_show: list[DynamicFormField] = Field(default_factory=list)
 
 
 class AiInvoiceErrorResponse(BaseModel):
@@ -236,6 +247,7 @@ class AiChatMissingFieldsResponse(BaseModel):
     status: Literal["missing_fields"]
     missing_fields: list[str]
     draft: InvoiceDraft
+    fields_to_show: list[DynamicFormField] = Field(default_factory=list)
 
 
 class AiChatErrorResponse(BaseModel):
@@ -251,6 +263,7 @@ class InvoiceDraftCompleteRequest(BaseModel):
 class InvoiceDraftMissingResponse(BaseModel):
     status: Literal["missing_fields"]
     missing_fields: list[str]
+    fields_to_show: list[DynamicFormField] = Field(default_factory=list)
 
 
 class InvoiceDraftCreatedResponse(BaseModel):
