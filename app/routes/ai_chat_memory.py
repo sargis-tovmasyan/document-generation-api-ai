@@ -904,6 +904,7 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         answer = answer.strip() or "How can I help?"
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
+        yield _sse_event("final", response)
         await _learn_from_turn(
             user_id=payload.user_id,
             chat_id=chat_id,
@@ -911,6 +912,5 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
             business_profile_id=payload.business_profile_id,
             client_id=payload.client_id,
         )
-        yield _sse_event("final", response)
 
     return StreamingResponse(events(), media_type="text/event-stream")
