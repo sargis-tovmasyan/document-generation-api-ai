@@ -36,6 +36,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(greeting, "Hi! How can I assist you today?")
         self.assertEqual(_clean_chat_answer("Hi\n\nReason"), "Hi")
+        self.assertEqual(_clean_chat_answer("1. Rose, 2. Tulip.\n\nThinking: hidden chain."), "1. Rose, 2. Tulip.")
         self.assertEqual(streaming_tail, "Hi")
         self.assertEqual(bbq, "I'm glad to hear that! BBQ is a great way to enjoy food.")
 
