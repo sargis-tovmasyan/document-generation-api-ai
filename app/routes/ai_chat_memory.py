@@ -635,6 +635,12 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
 
     decision = _guard_chat_decision(payload.message, decision)
     action = decision.action
+    if action == "recall_memory" and _asks_about_saved_memory(payload.message) and not _session_requested_memories(session_state):
+        answer = "I do not have anything saved for that yet."
+        response = {"status": "answer", "message": answer, "chat_id": chat_id}
+        append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
+        return response
+
     if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
         action = "create_invoice"
     elif await _should_route_as_answer_from_recent_context(
