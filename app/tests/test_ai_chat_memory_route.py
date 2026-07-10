@@ -256,7 +256,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             chunks = [
                 chunk
                 async for chunk in _stream_answer_with_memory(
-                    message='How many r in "raspberry"?',
+                    message="What is a polite invoice reminder?",
                     session_state={},
                     shared_memories=[],
                     skill_memories=[],
@@ -279,7 +279,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             chunks = [
                 chunk
                 async for chunk in _stream_answer_with_memory(
-                    message='How many r in "raspberry"?',
+                    message="What is a polite invoice reminder?",
                     session_state={},
                     shared_memories=[],
                     skill_memories=[],
