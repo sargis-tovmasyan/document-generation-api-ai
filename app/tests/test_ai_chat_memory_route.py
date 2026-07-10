@@ -10,6 +10,7 @@ from app.routes.ai_chat_memory import (
     _answer_chat_message_with_memory,
     _answer_prompt_with_memory,
     _clean_memory_safe_answer,
+    _select_answer_context,
     _stream_answer_with_memory,
     chat,
 )
@@ -207,6 +208,18 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("memory", answer.lower())
         prompt = complete_mock.call_args_list[1].args[0]
         self.assertNotIn("User asked me to remember color Blue", prompt)
+
+    async def test_context_selection_skips_llm_when_no_context_exists(self) -> None:
+        with patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock()) as complete_mock:
+            context = await _select_answer_context(
+                message="name 5 flowers",
+                recent_messages=[],
+                shared_memories=[],
+                skill_memories=[],
+            )
+
+        self.assertEqual(context, "none")
+        complete_mock.assert_not_called()
 
     def test_normal_answer_removes_memory_disclaimer(self) -> None:
         answer = _clean_memory_safe_answer(

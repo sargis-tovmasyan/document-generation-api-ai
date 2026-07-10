@@ -172,6 +172,9 @@ async def _select_answer_context(
     shared_memories: list[dict[str, Any]],
     skill_memories: list[dict[str, Any]],
 ) -> str:
+    if not recent_messages and not shared_memories and not skill_memories:
+        return "none"
+
     recent_context = "\n".join(
         f"{recent_message['role']}: {recent_message['content']}"
         for recent_message in recent_messages[-8:]
