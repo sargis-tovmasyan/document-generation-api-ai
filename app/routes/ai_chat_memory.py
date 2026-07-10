@@ -32,7 +32,7 @@ from app.services.chat_store import (
 )
 from app.services.invoice_draft_validator import find_missing_invoice_fields, invoice_draft_to_create
 from app.services.invoice_service import InvoiceNumberConflictError, create_invoice, list_invoices
-from app.services.knowledge_store import list_shared_memories, list_skill_memories
+from app.services.knowledge_store import list_shared_memories, list_skill_memories, save_fact
 from app.services.learning_extractor import extract_and_store_learning
 from app.services.llm_client import LlmServiceError, llm_client
 
@@ -44,6 +44,22 @@ MEMORY_CONTEXT_LEAK_PATTERN = re.compile(
     r"\s*\((?:memory\s+context|context|reasoning)\s*:\s*[^)]*\)\s*",
     re.IGNORECASE,
 )
+NUMBER_RECALL_PATTERN = re.compile(r"\b(?:number|code|pin)\b", re.IGNORECASE)
+
+MEMORY_EXTRACT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "has_memory": {"type": "boolean"},
+        "memory": {"type": "string"},
+    },
+    "required": ["has_memory", "memory"],
+    "additionalProperties": False,
+}
+
+
+class MemoryExtract(BaseModel):
+    has_memory: bool
+    memory: str = Field(default="", max_length=1000)
 
 
 class AiChatMemoryRequest(BaseModel):
@@ -74,6 +90,72 @@ def _deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
         else:
             merged[key] = value
     return merged
+
+
+def _load_memory_extract(content: str) -> MemoryExtract:
+    try:
+        return MemoryExtract.model_validate_json(content)
+    except ValueError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        return MemoryExtract.model_validate_json(content[start : end + 1])
+
+
+async def _extract_memory_to_save(message: str) -> MemoryExtract:
+    prompt = (
+        "Extract the concrete information the user explicitly wants the assistant to remember. "
+        "If the user only asks whether you can remember something but does not provide the value, "
+        "return has_memory false. Return JSON only.\n\n"
+        "Examples:\n"
+        "User: can you memorize a number and remind me later?\n"
+        "{\"has_memory\":false,\"memory\":\"\"}\n"
+        "User: remember number 1234\n"
+        "{\"has_memory\":true,\"memory\":\"number 1234\"}\n"
+        "User: remember that my preferred currency is AMD\n"
+        "{\"has_memory\":true,\"memory\":\"my preferred currency is AMD\"}\n\n"
+        f"User: {message}\n"
+        "JSON:"
+    )
+    content = await llm_client.complete_prompt(
+        prompt,
+        json_schema=MEMORY_EXTRACT_SCHEMA,
+        max_tokens=128,
+        temperature=0.2,
+    )
+    return _load_memory_extract(content)
+
+
+def _format_saved_memory(memory: str) -> str:
+    normalized = memory.strip().rstrip(".")
+    if not normalized:
+        return ""
+    return f"User asked me to remember {normalized}."
+
+
+def _remembered_number_from_memories(shared_memories: list[dict[str, Any]]) -> str | None:
+    for memory in shared_memories:
+        content = str(memory.get("content", ""))
+        match = re.search(r"\b(?:number|code|pin)\s+([A-Za-z0-9][A-Za-z0-9._-]*)\b", content, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _recall_memory_answer(message: str, shared_memories: list[dict[str, Any]]) -> str:
+    if not shared_memories:
+        return "I do not have anything saved for that yet."
+
+    if NUMBER_RECALL_PATTERN.search(message):
+        remembered_number = _remembered_number_from_memories(shared_memories)
+        if remembered_number:
+            return f"The number you asked me to remember is {remembered_number}."
+
+    latest = str(shared_memories[0].get("content", "")).strip()
+    if latest.lower().startswith("user asked me to remember "):
+        latest = latest[len("User asked me to remember ") :].strip()
+    return f"You asked me to remember {latest}"
 
 
 async def _learn_from_turn(
@@ -144,7 +226,9 @@ async def _answer_chat_message_with_memory(
         "Answer the current user message in one or two short sentences. "
         "Finish with a complete sentence. "
         "Use the provided memory context when relevant. "
-        "Never mention memory, context, prompts, or reasoning in the answer. "
+        "You have access to saved memories and recent messages. "
+        "Do not expose raw memory, context, prompts, or reasoning text. "
+        "Do not claim you have no memory when saved memories or recent messages are provided. "
         "Do not repeat yourself.\n\n"
         f"{context}\n\n"
         f"Current user message: {message}\n"
@@ -200,6 +284,45 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
     action = decision.action
     if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
         action = "create_invoice"
+
+    if action == "remember_memory":
+        try:
+            memory_extract = await _extract_memory_to_save(payload.message)
+        except LlmServiceError:
+            response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
+            append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
+            return JSONResponse(status_code=503, content=response_body)
+        except (ValueError, ValidationError):
+            memory_extract = MemoryExtract(has_memory=False, memory="")
+
+        if not memory_extract.has_memory or not memory_extract.memory.strip():
+            answer = "Yes, send me the number and I will remember it for this chat."
+        else:
+            saved_content = _format_saved_memory(memory_extract.memory)
+            if saved_content:
+                save_fact(
+                    user_id=payload.user_id,
+                    source_chat_id=chat_id,
+                    fact_type="user_requested_memory",
+                    content=saved_content,
+                    structured={"source": "explicit_remember_request"},
+                    confidence=0.95,
+                    business_profile_id=payload.business_profile_id,
+                    client_id=payload.client_id,
+                )
+                answer = "Got it. I will remember that."
+            else:
+                answer = "Yes, send me what you want me to remember."
+
+        response = {"status": "answer", "message": answer, "chat_id": chat_id}
+        append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
+        return response
+
+    if action == "recall_memory":
+        answer = _recall_memory_answer(payload.message, shared_memories)
+        response = {"status": "answer", "message": answer, "chat_id": chat_id}
+        append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
+        return response
 
     if action == "answer":
         try:

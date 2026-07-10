@@ -80,6 +80,13 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(answer, "Hi")
 
+    def test_clean_chat_answer_removes_role_echo_tail(self) -> None:
+        answer = _clean_chat_answer(
+            "I can remember that for you. user: I don't have any memory assistant: I don't have memory."
+        )
+
+        self.assertEqual(answer, "I can remember that for you.")
+
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(
             "app.routes.ai_chat.llm_client.complete_prompt",

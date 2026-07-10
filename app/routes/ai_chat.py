@@ -45,12 +45,16 @@ CHAT_DECISION_PROMPT = (
     "Use answer for greetings and professional questions. "
     "Use list_invoices when the user asks to show, list, find, or summarize invoices. "
     "Use create_invoice only when the user clearly wants to create an invoice. "
+    "Use remember_memory when the user asks you to remember or memorize information. "
+    "Use recall_memory when the user asks about information they previously asked you to remember. "
     "Examples: "
     "User: Hi JSON: {\"action\":\"answer\"}. "
     "User: Hello JSON: {\"action\":\"answer\"}. "
     "User: What payment terms should I use? JSON: {\"action\":\"answer\"}. "
     "User: Show me all my invoices JSON: {\"action\":\"list_invoices\"}. "
     "User: Create an invoice for Alex for design 300 dollars JSON: {\"action\":\"create_invoice\"}. "
+    "User: Remember number 1234 JSON: {\"action\":\"remember_memory\"}. "
+    "User: What number did I ask you to remember? JSON: {\"action\":\"recall_memory\"}. "
     "User: __USER_MESSAGE__ JSON:"
 )
 CHAT_DECISION_SCHEMA = {
@@ -58,7 +62,7 @@ CHAT_DECISION_SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["answer", "list_invoices", "create_invoice"],
+            "enum": ["answer", "list_invoices", "create_invoice", "remember_memory", "recall_memory"],
         }
     },
     "required": ["action"],
@@ -79,6 +83,7 @@ ANSWER_META_TAIL_PATTERN = re.compile(
     r"\s+(?:thought\s*:|reasoning\s*:|confidence\s*:|the only current message is|the assistant thought|the answer\b|answer\s*:|end of conversation\b).*",
     re.IGNORECASE | re.DOTALL,
 )
+ROLE_ECHO_TAIL_PATTERN = re.compile(r"\s+(?:user|assistant)\s*:.*", re.IGNORECASE | re.DOTALL)
 THINK_CLOSE_PATTERN = re.compile(r"</think>", re.IGNORECASE)
 THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
 THINK_TAG_PATTERN = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
@@ -86,7 +91,7 @@ STRAY_TAG_PATTERN = re.compile(r"</?[a-z][a-z0-9_-]*\b[^>]*>", re.IGNORECASE)
 
 
 class ChatDecision(BaseModel):
-    action: Literal["answer", "list_invoices", "create_invoice"]
+    action: Literal["answer", "list_invoices", "create_invoice", "remember_memory", "recall_memory"]
     message: str = ""
 
 
@@ -104,7 +109,7 @@ def _temperature_for_preset(preset: str) -> float:
 
 def _load_chat_decision(content: str) -> ChatDecision:
     normalized = content.strip().lower()
-    if normalized in {"answer", "list_invoices", "create_invoice"}:
+    if normalized in {"answer", "list_invoices", "create_invoice", "remember_memory", "recall_memory"}:
         return ChatDecision(action=normalized, message="")
 
     try:
@@ -138,7 +143,7 @@ async def _decide_chat_action(message: str) -> ChatDecision:
 
 
 def _guard_chat_decision(message: str, decision: ChatDecision) -> ChatDecision:
-    if decision.action == "answer":
+    if decision.action in {"answer", "remember_memory", "recall_memory"}:
         return decision
     if INVOICE_REQUEST_PATTERN.search(message):
         return decision
@@ -147,7 +152,7 @@ def _guard_chat_decision(message: str, decision: ChatDecision) -> ChatDecision:
 
 def _load_chat_decision_from_text(content: str) -> ChatDecision:
     normalized = content.lower()
-    for action in ("create_invoice", "list_invoices", "answer"):
+    for action in ("remember_memory", "recall_memory", "create_invoice", "list_invoices", "answer"):
         if action in normalized:
             return ChatDecision(action=action, message="")
     raise ValueError("LLM returned an unknown chat action")
@@ -201,6 +206,7 @@ def _clean_chat_answer(answer: str) -> str:
     normalized = THINK_TAG_PATTERN.sub("", normalized).strip()
     normalized = STRAY_TAG_PATTERN.sub("", normalized).strip()
     normalized = ANSWER_META_TAIL_PATTERN.sub("", normalized).strip()
+    normalized = ROLE_ECHO_TAIL_PATTERN.sub("", normalized).strip()
     normalized = _trim_incomplete_tail(normalized)
     return _remove_repeated_answer(normalized)
 
@@ -444,7 +450,7 @@ async def chat(
 
     decision = _guard_chat_decision(payload.message, decision)
 
-    if decision.action == "answer":
+    if decision.action in {"answer", "remember_memory", "recall_memory"}:
         try:
             answer = await _answer_chat_message(
                 payload.message,

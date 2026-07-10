@@ -148,7 +148,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Client Alex usually uses USD.", prompt)
         self.assertIn("This is for Alex.", prompt)
         self.assertIn("You may reason internally", prompt)
-        self.assertIn("Never mention memory, context, prompts, or reasoning", prompt)
+        self.assertIn("You have access to saved memories and recent messages", prompt)
+        self.assertIn("Do not claim you have no memory", prompt)
 
     async def test_answer_removes_memory_context_leak(self) -> None:
         with patch(
@@ -170,6 +171,53 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(answer, "Sounds great! Let's plan the details together.")
+
+    async def test_memory_request_without_value_asks_for_value(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"has_memory":false,"memory":""}'),
+            ),
+        ):
+            response = await chat(AiChatMemoryRequest(message="can you memorize a number and remind me later?"))
+
+        self.assertEqual(response["status"], "answer")
+        self.assertIn("send me the number", response["message"])
+
+    async def test_remembers_and_recalls_number(self) -> None:
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+            ),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"has_memory":true,"memory":"number 1234"}'),
+            ),
+        ):
+            remember_response = await chat(AiChatMemoryRequest(message="remember number 1234"))
+
+        chat_id = remember_response["chat_id"]
+        self.assertEqual(remember_response["status"], "answer")
+        self.assertIn("remember", remember_response["message"].lower())
+
+        with patch(
+            "app.routes.ai_chat_memory._decide_chat_action",
+            AsyncMock(return_value=ChatDecision(action="recall_memory")),
+        ):
+            recall_response = await chat(
+                AiChatMemoryRequest(chat_id=chat_id, message="what number did I ask you to remember?")
+            )
+
+        self.assertEqual(recall_response["status"], "answer")
+        self.assertIn("1234", recall_response["message"])
+
+        messages = list_chat_messages(chat_id)
+        self.assertEqual([message["role"] for message in messages], ["user", "assistant", "user", "assistant"])
 
 
 if __name__ == "__main__":
