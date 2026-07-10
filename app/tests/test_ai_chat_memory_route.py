@@ -450,13 +450,16 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                 "app.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="recall_memory")),
             ),
-            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock()) as complete_mock,
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"context":"none"}'),
+            ) as complete_mock,
         ):
             recall_response = await chat(AiChatMemoryRequest(message="what number did I ask you to remember?"))
 
         self.assertEqual(recall_response["status"], "answer")
         self.assertIn("do not have", recall_response["message"].lower())
-        complete_mock.assert_not_called()
+        self.assertEqual(complete_mock.await_count, 1)
 
     async def test_remembers_number_when_extractor_misses_explicit_value(self) -> None:
         with (
