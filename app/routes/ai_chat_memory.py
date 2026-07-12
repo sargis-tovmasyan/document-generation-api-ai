@@ -454,20 +454,22 @@ def _answer_prompt_with_memory(
         else ""
     )
     context_block = f"Context:\n{context}\n\n" if context else ""
+    answer_instruction = (
+        _thinking_instruction(True)
+        if thinking_enabled
+        else "Return only the final user-visible answer without reasoning or meta commentary. "
+    )
     prompt = (
         "You are a warm, friendly, professional document assistant. "
-        f"{_thinking_instruction(thinking_enabled)}"
-        "Answer the current user message directly and accurately. Use general knowledge when appropriate. "
-        "When the user requests multiple items or examples, make every item distinct unless repetition is requested. "
-        "Use GitHub-Flavored Markdown when formatting improves readability. "
-        "Use numbered or bulleted lists, tables, blockquotes, fenced code blocks with a language, "
-        "and bold emphasis when appropriate. Do not use raw HTML. "
-        "Keep simple greetings and short answers as plain text. "
-        "Do not refuse normal questions by claiming you need external data or special access. "
+        f"{answer_instruction}"
+        "Follow the user's request exactly and answer accurately. "
+        "When multiple items are requested, every item must be different; never repeat a list item. "
+        "Use GitHub-Flavored Markdown only when useful. Use **text** for requested bold text, "
+        "and fenced code blocks with a language for code. Do not use raw HTML. "
         f"{context_instruction}"
-        "Do not repeat yourself.\n\n"
+        "\n\n"
         f"{context_block}"
-        f"Current user message: {message}\n"
+        f"User: {message}\n"
         "Assistant:"
     )
     return prompt
