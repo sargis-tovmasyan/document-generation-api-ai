@@ -98,6 +98,16 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(answer, "I remember that.")
 
+    def test_clean_chat_answer_preserves_markdown_after_prose(self) -> None:
+        answer = _clean_chat_answer(
+            "Here is an example:\n\n```json\n{\"status\": \"ok\"}\n```"
+        )
+
+        self.assertEqual(
+            answer,
+            "Here is an example:\n\n```json\n{\"status\": \"ok\"}\n```",
+        )
+
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(
             "app.routes.ai_chat.llm_client.complete_prompt",

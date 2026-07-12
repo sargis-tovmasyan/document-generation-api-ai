@@ -14,8 +14,9 @@ DATABASE_PATH = DATA_DIR / "app.db"
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 LLM_COMPLETION_ENDPOINT = os.getenv("LLM_COMPLETION_ENDPOINT", "/completion")
-LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "180"))
+LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "600"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "256"))
+LLM_CHAT_MAX_TOKENS = int(os.getenv("LLM_CHAT_MAX_TOKENS", "1024"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "document-generation-api")

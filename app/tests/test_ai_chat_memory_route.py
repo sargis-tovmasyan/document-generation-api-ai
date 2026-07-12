@@ -152,6 +152,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(answer, "Use USD for Alex.")
+        self.assertEqual(complete_mock.call_args_list[1].kwargs["max_tokens"], 1024)
         prompt = complete_mock.call_args_list[1].args[0]
         self.assertIn("Client Alex usually uses USD.", prompt)
         self.assertIn("You may reason internally", prompt)
@@ -172,6 +173,9 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Recent messages", prompt)
         self.assertIn("Use general knowledge", prompt)
         self.assertIn("Do not refuse normal questions", prompt)
+        self.assertIn("GitHub-Flavored Markdown", prompt)
+        self.assertIn("fenced code blocks", prompt)
+        self.assertIn("Do not use raw HTML", prompt)
 
     async def test_greeting_uses_no_context_and_no_memory_text(self) -> None:
         with patch(
@@ -231,8 +235,12 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer, "I can count letters in your message.")
 
     async def test_answer_prompt_keeps_thinking_instruction_for_streaming(self) -> None:
-        async def fake_stream(prompt: str, *_: object, **__: object):
+        seen_max_tokens: int | None = None
+
+        async def fake_stream(prompt: str, *_: object, **kwargs: object):
+            nonlocal seen_max_tokens
             self.assertIn("You may reason internally", prompt)
+            seen_max_tokens = int(kwargs["max_tokens"])
             yield "There are two r letters."
 
         with (
@@ -253,6 +261,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             ]
 
         self.assertEqual("".join(chunks), "There are two r letters.")
+        self.assertEqual(seen_max_tokens, 1024)
 
     async def test_stream_answer_handles_letter_count_without_memory_disclaimer(self) -> None:
         async def fake_stream(*_: object, **__: object):

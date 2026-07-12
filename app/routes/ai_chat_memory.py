@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
+from app.config import LLM_CHAT_MAX_TOKENS
 from app.routes.ai_chat import (
     CHAT_LLM_UNAVAILABLE_MESSAGE,
     CHAT_PARSE_ERROR_MESSAGE,
@@ -455,7 +456,11 @@ def _answer_prompt_with_memory(
     prompt = (
         "You are a warm, friendly, professional document assistant. "
         f"{_thinking_instruction(thinking_enabled)}"
-        "Answer the current user message in one or two short sentences. "
+        "Answer the current user message clearly and with enough detail to be useful. "
+        "Use GitHub-Flavored Markdown when formatting improves readability. "
+        "Use numbered or bulleted lists, tables, blockquotes, fenced code blocks with a language, "
+        "and bold emphasis when appropriate. Do not use raw HTML. "
+        "Keep simple greetings and short answers as plain text. "
         "Finish with a complete sentence. "
         "For normal questions, answer directly using the current user message. "
         "Use general knowledge for common questions and simple list requests. "
@@ -505,7 +510,7 @@ async def _answer_chat_message_with_memory(
     )
     answer = await llm_client.complete_prompt(
         prompt,
-        max_tokens=128,
+        max_tokens=LLM_CHAT_MAX_TOKENS,
         stop=["User:", "\nUser:", "\nAssistant:"],
         temperature=_temperature_for_preset(temperature_preset),
     )
@@ -560,7 +565,7 @@ async def _stream_answer_with_memory(
     visible_answer = ""
     async for chunk in llm_client.stream_prompt(
         prompt,
-        max_tokens=128,
+        max_tokens=LLM_CHAT_MAX_TOKENS,
         stop=["User:", "\nUser:", "\nAssistant:"],
         temperature=_temperature_for_preset(temperature_preset),
     ):
