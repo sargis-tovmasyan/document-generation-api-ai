@@ -176,6 +176,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("GitHub-Flavored Markdown", prompt)
         self.assertIn("fenced code blocks", prompt)
         self.assertIn("Do not use raw HTML", prompt)
+        self.assertIn("make every item distinct", prompt)
 
     async def test_greeting_uses_no_context_and_no_memory_text(self) -> None:
         with patch(
