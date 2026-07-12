@@ -454,19 +454,18 @@ def _answer_prompt_with_memory(
         else ""
     )
     context_block = f"Context:\n{context}\n\n" if context else ""
-    answer_instruction = _thinking_instruction(True) if thinking_enabled else ""
-    prompt = (
+    if not context and not thinking_enabled:
+        return f"User: {message}\nAssistant:"
+
+    return (
         "You are a professional assistant. Answer directly and accurately. "
-        f"{answer_instruction}"
-        "Use GitHub-Flavored Markdown when it improves readability. Use **text** for bold text. "
-        "Do not use raw HTML. "
+        f"{_thinking_instruction(thinking_enabled)}"
         f"{context_instruction}"
         "\n\n"
         f"{context_block}"
         f"User: {message}\n"
         "Assistant:"
     )
-    return prompt
 
 
 async def _answer_chat_message_with_memory(

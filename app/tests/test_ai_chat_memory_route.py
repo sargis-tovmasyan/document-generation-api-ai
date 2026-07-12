@@ -168,12 +168,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             recent_messages=[],
         )
 
-        self.assertNotIn("memory", prompt.lower())
-        self.assertNotIn("saved", prompt.lower())
-        self.assertNotIn("Recent messages", prompt)
-        self.assertIn("GitHub-Flavored Markdown", prompt)
-        self.assertIn("Use **text** for bold text", prompt)
-        self.assertIn("Do not use raw HTML", prompt)
+        self.assertEqual(prompt, "User: name 5 flowers\nAssistant:")
 
     async def test_greeting_uses_no_context_and_no_memory_text(self) -> None:
         with patch(
