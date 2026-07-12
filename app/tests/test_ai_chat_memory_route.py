@@ -173,6 +173,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Recent messages", prompt)
         self.assertIn("GitHub-Flavored Markdown", prompt)
         self.assertIn("fenced code blocks", prompt)
+        self.assertIn("preserve the requested list style", prompt)
+        self.assertIn("only when the user requests code", prompt)
         self.assertIn("Do not use raw HTML", prompt)
         self.assertIn("every item must be different", prompt)
         self.assertIn("never repeat a list item", prompt)
