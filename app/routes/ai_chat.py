@@ -41,12 +41,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
 CHAT_DECISION_PROMPT = (
-    "Classify the user request as one action. "
+    "Classify the user request as one action and choose the context needed to answer it. "
     "Use answer for greetings and professional questions. "
     "Use list_invoices when the user asks to show, list, find, or summarize invoices. "
     "Use create_invoice only when the user clearly wants to create an invoice. "
     "Use remember_memory when the user asks you to remember or memorize information. "
     "Use recall_memory when the user asks about information they previously asked you to remember. "
+    "Use context none for new requests, recent_chat for follow-ups about this chat, "
+    "saved_memory for explicitly remembered facts, and both only when both are needed. "
     "Examples: "
     "User: Hi JSON: {\"action\":\"answer\"}. "
     "User: Hello JSON: {\"action\":\"answer\"}. "
@@ -63,7 +65,11 @@ CHAT_DECISION_SCHEMA = {
         "action": {
             "type": "string",
             "enum": ["answer", "list_invoices", "create_invoice", "remember_memory", "recall_memory"],
-        }
+        },
+        "context": {
+            "type": "string",
+            "enum": ["none", "recent_chat", "saved_memory", "both"],
+        },
     },
     "required": ["action"],
     "additionalProperties": False,
@@ -93,6 +99,7 @@ MARKDOWN_BLOCK_PATTERN = re.compile(r"(?:^|\n)(?:```|~~~|\s*(?:[-*+] |\d+[.)] |>
 
 class ChatDecision(BaseModel):
     action: Literal["answer", "list_invoices", "create_invoice", "remember_memory", "recall_memory"]
+    context: Literal["none", "recent_chat", "saved_memory", "both"] = "none"
     message: str = ""
 
 
@@ -148,7 +155,7 @@ def _guard_chat_decision(message: str, decision: ChatDecision) -> ChatDecision:
         return decision
     if INVOICE_REQUEST_PATTERN.search(message):
         return decision
-    return ChatDecision(action="answer", message="")
+    return ChatDecision(action="answer", context=decision.context, message="")
 
 
 def _load_chat_decision_from_text(content: str) -> ChatDecision:

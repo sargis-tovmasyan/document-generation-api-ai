@@ -244,7 +244,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             yield "There are two r letters."
 
         with (
-            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"context":"none"}'),
+            ) as complete_mock,
             patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
         ):
             chunks = [
@@ -257,11 +260,13 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                     recent_messages=[],
                     thinking_enabled=True,
                     temperature_preset="low",
+                    selected_context="none",
                 )
             ]
 
         self.assertEqual("".join(chunks), "There are two r letters.")
         self.assertEqual(seen_max_tokens, 1024)
+        complete_mock.assert_not_awaited()
 
     async def test_stream_answer_handles_letter_count_without_memory_disclaimer(self) -> None:
         async def fake_stream(*_: object, **__: object):
@@ -552,11 +557,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "app.routes.ai_chat_memory._decide_chat_action",
-                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+                AsyncMock(return_value=ChatDecision(action="remember_memory", context="recent_chat")),
             ),
             patch(
                 "app.routes.ai_chat_memory.llm_client.complete_prompt",
-                AsyncMock(side_effect=['{"context":"recent_chat"}', '{"context":"recent_chat"}', "The 3rd flower was Tulip."]),
+                AsyncMock(return_value="The 3rd flower was Tulip."),
             ),
             patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):

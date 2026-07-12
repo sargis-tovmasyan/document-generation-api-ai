@@ -408,7 +408,7 @@ def _format_context_section(
         lines.append("Recent messages:")
         lines.extend(
             f"{message['role']}: {message['content']}"
-            for message in recent_messages[-8:]
+            for message in recent_messages[-4:]
         )
     return "\n".join(lines)
 
@@ -485,8 +485,9 @@ async def _answer_chat_message_with_memory(
     recent_messages: list[dict[str, Any]],
     thinking_enabled: bool = False,
     temperature_preset: str = "medium",
+    selected_context: str | None = None,
 ) -> str:
-    context = await _select_answer_context(
+    context = selected_context or await _select_answer_context(
         message=message,
         recent_messages=recent_messages,
         shared_memories=shared_memories,
@@ -538,8 +539,9 @@ async def _stream_answer_with_memory(
     recent_messages: list[dict[str, Any]],
     thinking_enabled: bool,
     temperature_preset: str,
+    selected_context: str | None = None,
 ) -> AsyncIterator[str]:
-    context = await _select_answer_context(
+    context = selected_context or await _select_answer_context(
         message=message,
         recent_messages=recent_messages,
         shared_memories=shared_memories,
@@ -648,13 +650,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
 
     if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
         action = "create_invoice"
-    elif await _should_route_as_answer_from_recent_context(
-        action=action,
-        message=payload.message,
-        recent_messages=recent_messages,
-        shared_memories=shared_memories,
-        skill_memories=skill_memories,
-    ):
+    elif action in {"remember_memory", "recall_memory"} and decision.context in {"recent_chat", "both"}:
         action = "answer"
 
     if action == "remember_memory":
@@ -712,6 +708,7 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
                 recent_messages=recent_messages,
                 thinking_enabled=payload.thinking_enabled,
                 temperature_preset=payload.temperature_preset,
+                selected_context=decision.context,
             )
         except LlmServiceError:
             response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
@@ -851,21 +848,7 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         action = decision.action
         if session_state.get("current_intent") == "create_invoice" and session_state.get("missing_fields"):
             action = "create_invoice"
-        elif await _should_route_as_answer_from_recent_context(
-            action=action,
-            message=payload.message,
-            recent_messages=list_chat_messages(chat_id, limit=12),
-            shared_memories=list_shared_memories(
-                user_id=payload.user_id,
-                business_profile_id=payload.business_profile_id,
-                client_id=payload.client_id,
-            ),
-            skill_memories=list_skill_memories(
-                user_id=payload.user_id,
-                business_profile_id=payload.business_profile_id,
-                client_id=payload.client_id,
-            ),
-        ):
+        elif action in {"remember_memory", "recall_memory"} and decision.context in {"recent_chat", "both"}:
             action = "answer"
 
         if action != "answer":
@@ -897,6 +880,7 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
                 recent_messages=recent_messages,
                 thinking_enabled=payload.thinking_enabled,
                 temperature_preset=payload.temperature_preset,
+                selected_context=decision.context,
             ):
                 answer += delta
                 yield _sse_event("token", {"content": delta})

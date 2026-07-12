@@ -12,6 +12,11 @@ from app.services.llm_client import LlmServiceError
 
 
 class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
+    def test_chat_decision_defaults_context_for_legacy_action_only_response(self) -> None:
+        decision = ChatDecision(action="answer")
+
+        self.assertEqual(decision.context, "none")
+
     def test_clean_chat_answer_removes_model_meta_tail(self) -> None:
         answer = _clean_chat_answer(
             "I'm glad to hear that! BBQ is a great way to enjoy food.\n\n"
