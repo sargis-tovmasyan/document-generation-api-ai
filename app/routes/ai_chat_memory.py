@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 import json
 import logging
@@ -894,12 +895,14 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
         yield _sse_event("final", response)
-        await _learn_from_turn(
-            user_id=payload.user_id,
-            chat_id=chat_id,
-            session_state=session_state,
-            business_profile_id=payload.business_profile_id,
-            client_id=payload.client_id,
+        asyncio.create_task(
+            _learn_from_turn(
+                user_id=payload.user_id,
+                chat_id=chat_id,
+                session_state=session_state,
+                business_profile_id=payload.business_profile_id,
+                client_id=payload.client_id,
+            )
         )
 
     return StreamingResponse(events(), media_type="text/event-stream")
