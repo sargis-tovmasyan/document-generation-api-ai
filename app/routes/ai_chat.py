@@ -57,6 +57,7 @@ CHAT_DECISION_PROMPT = (
     "User: Create an invoice for Alex for design 300 dollars JSON: {\"action\":\"create_invoice\"}. "
     "User: Remember number 1234 JSON: {\"action\":\"remember_memory\"}. "
     "User: What number did I ask you to remember? JSON: {\"action\":\"recall_memory\"}. "
+    "User: Try again JSON: {\"action\":\"answer\",\"context\":\"recent_chat\"}. "
     "User: __USER_MESSAGE__ JSON:"
 )
 CHAT_DECISION_SCHEMA = {
@@ -93,7 +94,10 @@ ROLE_ECHO_TAIL_PATTERN = re.compile(r"\s+(?:user|assistant)\s*:.*", re.IGNORECAS
 THINK_CLOSE_PATTERN = re.compile(r"</think>", re.IGNORECASE)
 THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
 THINK_TAG_PATTERN = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
-STRAY_TAG_PATTERN = re.compile(r"</?[a-z][a-z0-9_-]*\b[^>]*>", re.IGNORECASE)
+STRAY_TAG_PATTERN = re.compile(
+    r"</?(?:ing|analysis|reasoning|thought|answer|assistant|user)\b[^>]*>",
+    re.IGNORECASE,
+)
 MARKDOWN_BLOCK_PATTERN = re.compile(r"(?:^|\n)(?:```|~~~|\s*(?:[-*+] |\d+[.)] |> |\|))")
 
 

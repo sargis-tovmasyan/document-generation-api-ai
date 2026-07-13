@@ -331,6 +331,38 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("".join(chunks), "Hi!")
 
+    async def test_stream_answer_preserves_cpp_header_and_complete_code_block(self) -> None:
+        async def fake_stream(*_: object, **__: object):
+            for chunk in [
+                "```cpp\n#include <iostream",
+                ">\n\nint main() {\n",
+                '    std::cout << "Hello, World!" << std::endl;\n',
+                "    return 0;\n}\n```",
+            ]:
+                yield chunk
+
+        with patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+            chunks = [
+                chunk
+                async for chunk in _stream_answer_with_memory(
+                    message="Format this C++ code in a code block.",
+                    session_state={},
+                    shared_memories=[],
+                    skill_memories=[],
+                    recent_messages=[],
+                    thinking_enabled=False,
+                    temperature_preset="low",
+                    selected_context="none",
+                )
+            ]
+
+        self.assertEqual(
+            "".join(chunks),
+            "```cpp\n#include <iostream>\n\nint main() {\n"
+            '    std::cout << "Hello, World!" << std::endl;\n'
+            "    return 0;\n}\n```",
+        )
+
     async def test_stream_answer_hides_memory_disclaimer_chunks_for_normal_question(self) -> None:
         async def fake_stream(*_: object, **__: object):
             for chunk in ["I don't have access", " to memory. ", "There are two r letters."]:

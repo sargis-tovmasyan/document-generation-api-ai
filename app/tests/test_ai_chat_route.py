@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from app.routes.ai_chat import ChatDecision, _answer_chat_message, _clean_chat_answer, chat
+from app.routes.ai_chat import ChatDecision, _answer_chat_message, _clean_chat_answer, _decide_chat_action, chat
 from app.schemas import AiChatRequest, InvoiceDraft
 from app.services.invoice_service import InvoiceNumberConflictError
 from app.services.llm_client import LlmServiceError
@@ -112,6 +112,18 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
             answer,
             "Here is an example:\n\n```json\n{\"status\": \"ok\"}\n```",
         )
+
+    async def test_retry_request_is_routed_with_recent_chat_context(self) -> None:
+        with patch(
+            "app.routes.ai_chat.llm_client.complete_prompt",
+            AsyncMock(return_value='{"action":"answer","context":"recent_chat"}'),
+        ) as complete_mock:
+            decision = await _decide_chat_action("try again")
+
+        self.assertEqual(decision.context, "recent_chat")
+        prompt = complete_mock.await_args.args[0]
+        self.assertIn("User: Try again", prompt)
+        self.assertIn('{"action":"answer","context":"recent_chat"}', prompt)
 
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(
