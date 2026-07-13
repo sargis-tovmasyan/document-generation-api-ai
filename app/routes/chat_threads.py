@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.services.chat_schema import ensure_chat_schema
 from app.services.chat_store import (
     DEFAULT_USER_ID,
+    append_chat_message,
     clear_document_scope,
     create_chat_thread,
     get_chat_thread,
@@ -42,6 +43,11 @@ class UserSettingsUpdateRequest(BaseModel):
     settings: dict[str, Any] = Field(default_factory=dict)
 
 
+class ChatErrorCreateRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    retryable: bool = True
+
+
 @router.post("/chat-threads")
 def create_thread(payload: ChatThreadCreateRequest) -> dict[str, Any]:
     ensure_chat_schema()
@@ -71,6 +77,24 @@ def get_thread(chat_id: str) -> dict[str, Any]:
     thread["messages"] = list_chat_messages(chat_id)
     thread["session_memory"] = get_session_state(chat_id)
     return thread
+
+
+@router.post("/chat-threads/{chat_id}/errors")
+def create_chat_error(chat_id: str, payload: ChatErrorCreateRequest) -> dict[str, Any]:
+    ensure_chat_schema()
+    if get_chat_thread(chat_id) is None:
+        raise HTTPException(status_code=404, detail="Chat thread not found")
+    metadata = {
+        "status": "error",
+        "message": payload.message,
+        "retryable": payload.retryable,
+    }
+    return append_chat_message(
+        chat_id=chat_id,
+        role="assistant",
+        content=payload.message,
+        metadata=metadata,
+    )
 
 
 @router.patch("/chat-threads/{chat_id}")
