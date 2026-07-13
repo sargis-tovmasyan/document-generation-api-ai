@@ -207,6 +207,39 @@ def list_chat_messages(chat_id: str, *, limit: int = 50) -> list[dict[str, Any]]
     return messages
 
 
+def merge_latest_assistant_metadata(chat_id: str, metadata: dict[str, Any]) -> dict[str, Any] | None:
+    with database_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT *
+            FROM chat_messages
+            WHERE chat_id = ?
+              AND role = 'assistant'
+              AND rowid > COALESCE(
+                  (SELECT MAX(rowid) FROM chat_messages WHERE chat_id = ? AND role = 'user'),
+                  0
+              )
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (chat_id, chat_id),
+        ).fetchone()
+        if row is None:
+            return None
+
+        merged = json_loads(row["metadata_json"], {})
+        merged.update(metadata)
+        connection.execute(
+            "UPDATE chat_messages SET metadata_json = ? WHERE id = ?",
+            (json_dumps(merged), row["id"]),
+        )
+
+    result = dict(row)
+    result["metadata"] = merged
+    result.pop("metadata_json", None)
+    return result
+
+
 def get_session_state(chat_id: str) -> dict[str, Any]:
     with database_connection() as connection:
         row = connection.execute(

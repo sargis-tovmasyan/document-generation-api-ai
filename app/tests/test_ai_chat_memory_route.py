@@ -13,10 +13,12 @@ from app.routes.ai_chat_memory import (
     _select_answer_context,
     _stream_answer_with_memory,
     chat,
+    chat_stream,
 )
 from app.schemas import InvoiceDraft
 from app.services import chat_schema, knowledge_store
 from app.services.chat_store import DEFAULT_USER_ID, get_chat_thread, get_session_state, list_chat_messages
+from app.services.llm_metrics import record_llm_response
 
 
 class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -53,6 +55,44 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         messages = list_chat_messages(response["chat_id"])
         self.assertEqual([message["role"] for message in messages], ["user", "assistant"])
         self.assertEqual(messages[0]["content"], "Hi")
+
+    async def test_stream_includes_request_diagnostics_and_persists_them(self) -> None:
+        async def fake_stream(*_: object, **__: object):
+            yield "Hello"
+            record_llm_response(
+                {
+                    "model": "/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+                    "tokens_evaluated": 12,
+                    "tokens_predicted": 3,
+                    "timings": {"predicted_ms": 1000},
+                }
+            )
+
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="answer", context="none")),
+            ),
+            patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+            patch("app.routes.ai_chat_memory.get_request_id", return_value="request-123"),
+            patch("app.routes.ai_chat_memory.get_trace_id", return_value="trace-456"),
+            patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+        ):
+            response = await chat_stream(AiChatMemoryRequest(message="Hi"))
+            chunks = [chunk async for chunk in response.body_iterator]
+
+        body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+        self.assertIn('event: start\ndata: {"chat_id":', body)
+        self.assertIn('"request_id": "request-123"', body)
+        self.assertIn('"trace_id": "trace-456"', body)
+        self.assertIn('"total_tokens": 15', body)
+        self.assertIn('"tokens_per_second": 3.0', body)
+
+        chat_id = body.split('"chat_id": "', 1)[1].split('"', 1)[0]
+        messages = list_chat_messages(chat_id)
+        diagnostics = messages[-1]["metadata"]["diagnostics"]
+        self.assertEqual(diagnostics["request_id"], "request-123")
+        self.assertEqual(diagnostics["total_tokens"], 15)
 
     async def test_session_draft_continues_across_turns(self) -> None:
         first_draft = InvoiceDraft.model_validate(

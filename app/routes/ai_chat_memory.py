@@ -5,13 +5,15 @@ from collections.abc import AsyncIterator
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
-from app.config import LLM_CHAT_MAX_TOKENS
+from app.config import LLAMA_MODEL_FILE, LLM_CHAT_MAX_TOKENS
+from app.observability import get_request_id, get_trace_id
 from app.routes.ai_chat import (
     CHAT_LLM_UNAVAILABLE_MESSAGE,
     CHAT_PARSE_ERROR_MESSAGE,
@@ -32,6 +34,7 @@ from app.services.chat_store import (
     ensure_chat_thread,
     get_session_state,
     list_chat_messages,
+    merge_latest_assistant_metadata,
     upsert_session_state,
 )
 from app.services.invoice_draft_validator import find_missing_invoice_fields, invoice_draft_to_create
@@ -39,6 +42,11 @@ from app.services.invoice_service import InvoiceNumberConflictError, create_invo
 from app.services.knowledge_store import list_shared_memories, list_skill_memories
 from app.services.learning_extractor import extract_and_store_learning
 from app.services.llm_client import LlmServiceError, llm_client
+from app.services.llm_metrics import (
+    LlmRequestMetrics,
+    reset_llm_request_metrics,
+    set_llm_request_metrics,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -804,7 +812,26 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
 
 @router.post("/stream", response_class=StreamingResponse)
 async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
-    async def events() -> AsyncIterator[str]:
+    started_at = time.perf_counter()
+    request_id = get_request_id()
+    trace_id = get_trace_id()
+    metrics = LlmRequestMetrics(
+        request_id=request_id,
+        trace_id=trace_id,
+        default_model=LLAMA_MODEL_FILE,
+    )
+
+    def finalize_response(content: dict[str, Any], *, persist: bool = True) -> dict[str, Any]:
+        response = dict(content)
+        response["diagnostics"] = metrics.snapshot(
+            duration_ms=(time.perf_counter() - started_at) * 1000,
+        )
+        chat_id = response.get("chat_id")
+        if persist and isinstance(chat_id, str):
+            merge_latest_assistant_metadata(chat_id, {"diagnostics": response["diagnostics"]})
+        return response
+
+    async def response_events() -> AsyncIterator[str]:
         ensure_chat_schema()
         thread = ensure_chat_thread(
             chat_id=payload.chat_id,
@@ -815,12 +842,16 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         )
         chat_id = thread["id"]
         stream_payload = payload.model_copy(update={"chat_id": chat_id})
-        yield _sse_event("start", {"chat_id": chat_id})
+        yield _sse_event(
+            "start",
+            {"chat_id": chat_id, "request_id": request_id, "trace_id": trace_id},
+        )
 
         session_state = get_session_state(chat_id)
         if _pending_memory_value_from_message(payload.message, session_state):
             response = await chat(stream_payload)
             content = _json_response_content(response) if isinstance(response, JSONResponse) else response
+            content = finalize_response(content)
             yield _sse_event("final", content)
             return
 
@@ -832,12 +863,14 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         except LlmServiceError:
             append_chat_message(chat_id=chat_id, role="user", content=payload.message)
             response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
+            response_body = finalize_response(response_body, persist=False)
             append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
             yield _sse_event("final", response_body)
             return
         except (ValueError, ValidationError):
             append_chat_message(chat_id=chat_id, role="user", content=payload.message)
             response_body = {"status": "ai_parse_error", "message": CHAT_PARSE_ERROR_MESSAGE, "chat_id": chat_id}
+            response_body = finalize_response(response_body, persist=False)
             append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
             yield _sse_event("final", response_body)
             return
@@ -852,6 +885,7 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         if action != "answer":
             response = await chat(stream_payload)
             content = _json_response_content(response) if isinstance(response, JSONResponse) else response
+            content = finalize_response(content)
             yield _sse_event("final", content)
             return
 
@@ -884,12 +918,14 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
                 yield _sse_event("token", {"content": delta})
         except LlmServiceError:
             response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
+            response_body = finalize_response(response_body, persist=False)
             append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
             yield _sse_event("final", response_body)
             return
 
         answer = answer.strip() or "How can I help?"
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
+        response = finalize_response(response, persist=False)
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
         yield _sse_event("final", response)
         asyncio.create_task(
@@ -901,5 +937,13 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
                 client_id=payload.client_id,
             )
         )
+
+    async def events() -> AsyncIterator[str]:
+        token = set_llm_request_metrics(metrics)
+        try:
+            async for event in response_events():
+                yield event
+        finally:
+            reset_llm_request_metrics(token)
 
     return StreamingResponse(events(), media_type="text/event-stream")

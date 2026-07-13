@@ -25,7 +25,22 @@ class ChatThreadsRouteTests(unittest.TestCase):
 
         created = create_chat_error(
             chat_id,
-            ChatErrorCreateRequest(message="Stream ended without a final response.", retryable=True),
+            ChatErrorCreateRequest(
+                message="Stream ended without a final response.",
+                retryable=True,
+                diagnostics={
+                    "request_id": "request-123",
+                    "trace_id": "trace-456",
+                    "duration_ms": 5000,
+                },
+                raw={
+                    "events": [
+                        {"type": "start", "request_id": "request-123"},
+                        {"type": "token", "content": "Partial"},
+                    ],
+                    "error": "Stream ended without a final response.",
+                },
+            ),
         )
 
         self.assertEqual(created["role"], "assistant")
@@ -33,6 +48,9 @@ class ChatThreadsRouteTests(unittest.TestCase):
         self.assertEqual(messages[0]["content"], "Stream ended without a final response.")
         self.assertEqual(messages[0]["metadata"]["status"], "error")
         self.assertTrue(messages[0]["metadata"]["retryable"])
+        self.assertEqual(messages[0]["metadata"]["diagnostics"]["trace_id"], "trace-456")
+        self.assertEqual(messages[0]["metadata"]["raw"]["events"][0]["type"], "start")
+        self.assertEqual(messages[0]["metadata"]["raw"]["events"][1]["content"], "Partial")
 
     def test_rejects_error_for_unknown_chat(self) -> None:
         with self.assertRaises(HTTPException) as raised:

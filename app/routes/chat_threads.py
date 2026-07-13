@@ -46,6 +46,8 @@ class UserSettingsUpdateRequest(BaseModel):
 class ChatErrorCreateRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     retryable: bool = True
+    diagnostics: dict[str, Any] | None = None
+    raw: dict[str, Any] | None = None
 
 
 @router.post("/chat-threads")
@@ -89,6 +91,10 @@ def create_chat_error(chat_id: str, payload: ChatErrorCreateRequest) -> dict[str
         "message": payload.message,
         "retryable": payload.retryable,
     }
+    if payload.diagnostics is not None:
+        metadata["diagnostics"] = payload.diagnostics
+    if payload.raw is not None:
+        metadata["raw"] = payload.raw
     return append_chat_message(
         chat_id=chat_id,
         role="assistant",
