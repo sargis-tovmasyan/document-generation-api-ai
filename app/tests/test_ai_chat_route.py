@@ -126,12 +126,20 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
             "app.routes.ai_chat.llm_client.complete_prompt",
             AsyncMock(return_value='{"action":"answer","context":"recent_chat"}'),
         ) as complete_mock:
-            decision = await _decide_chat_action("try again")
+            decision = await _decide_chat_action(
+                "try again",
+                recent_messages=[
+                    {"role": "user", "content": "Format this C++ code."},
+                    {"role": "assistant", "content": "```cpp\n#include <iostream>\n```"},
+                ],
+            )
 
         self.assertEqual(decision.context, "recent_chat")
         prompt = complete_mock.await_args.args[0]
         self.assertIn("User: Try again", prompt)
         self.assertIn('{"action":"answer","context":"recent_chat"}', prompt)
+        self.assertIn("Format this C++ code.", prompt)
+        self.assertIn("```cpp\n#include <iostream>\n```", prompt)
 
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(

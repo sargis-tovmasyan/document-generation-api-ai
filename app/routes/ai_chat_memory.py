@@ -622,7 +622,10 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         return response
 
     try:
-        decision = await _decide_chat_action(payload.message)
+        decision = await _decide_chat_action(
+            payload.message,
+            recent_messages=recent_messages[:-1],
+        )
     except LlmServiceError:
         response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
@@ -822,7 +825,10 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
             return
 
         try:
-            decision = await _decide_chat_action(payload.message)
+            decision = await _decide_chat_action(
+                payload.message,
+                recent_messages=list_chat_messages(chat_id, limit=2),
+            )
         except LlmServiceError:
             append_chat_message(chat_id=chat_id, role="user", content=payload.message)
             response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}

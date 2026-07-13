@@ -58,6 +58,7 @@ CHAT_DECISION_PROMPT = (
     "User: Remember number 1234 JSON: {\"action\":\"remember_memory\"}. "
     "User: What number did I ask you to remember? JSON: {\"action\":\"recall_memory\"}. "
     "User: Try again JSON: {\"action\":\"answer\",\"context\":\"recent_chat\"}. "
+    "Recent chat:\n__RECENT_CHAT__\n"
     "User: __USER_MESSAGE__ JSON:"
 )
 CHAT_DECISION_SCHEMA = {
@@ -136,9 +137,19 @@ def _load_chat_decision(content: str) -> ChatDecision:
     return ChatDecision.model_validate(raw_decision)
 
 
-async def _decide_chat_action(message: str) -> ChatDecision:
+async def _decide_chat_action(
+    message: str,
+    recent_messages: list[dict[str, object]] | None = None,
+) -> ChatDecision:
     log_event("ai.chat.decision.started", **include_frontend_message(message))
-    prompt = CHAT_DECISION_PROMPT.replace("__USER_MESSAGE__", message)
+    recent_chat = "\n".join(
+        f"{item.get('role', '')}: {item.get('content', '')}"
+        for item in (recent_messages or [])[-2:]
+    ) or "None"
+    prompt = (
+        CHAT_DECISION_PROMPT.replace("__RECENT_CHAT__", recent_chat)
+        .replace("__USER_MESSAGE__", message)
+    )
     content = await llm_client.complete_prompt(
         prompt,
         json_schema=CHAT_DECISION_SCHEMA,
