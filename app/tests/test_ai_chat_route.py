@@ -5,7 +5,14 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from app.routes.ai_chat import ChatDecision, _answer_chat_message, _clean_chat_answer, _decide_chat_action, chat
+from app.routes.ai_chat import (
+    CHAT_DECISION_SCHEMA,
+    ChatDecision,
+    _answer_chat_message,
+    _clean_chat_answer,
+    _decide_chat_action,
+    chat,
+)
 from app.schemas import AiChatRequest, InvoiceDraft
 from app.services.invoice_service import InvoiceNumberConflictError
 from app.services.llm_client import LlmServiceError
@@ -114,6 +121,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_retry_request_is_routed_with_recent_chat_context(self) -> None:
+        self.assertIn("context", CHAT_DECISION_SCHEMA["required"])
         with patch(
             "app.routes.ai_chat.llm_client.complete_prompt",
             AsyncMock(return_value='{"action":"answer","context":"recent_chat"}'),

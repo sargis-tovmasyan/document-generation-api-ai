@@ -72,7 +72,7 @@ CHAT_DECISION_SCHEMA = {
             "enum": ["none", "recent_chat", "saved_memory", "both"],
         },
     },
-    "required": ["action"],
+    "required": ["action", "context"],
     "additionalProperties": False,
 }
 
