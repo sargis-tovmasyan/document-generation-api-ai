@@ -17,7 +17,7 @@ from app.config import (
     DEPLOYMENT_ENVIRONMENT,
     SERVICE_NAME,
 )
-from app.observability import get_request_id
+from app.observability import get_request_id, get_trace_id
 
 SENSITIVE_KEY_PARTS = (
     "authorization",
@@ -48,6 +48,7 @@ def log_event(
         "service_name": SERVICE_NAME,
         "environment": DEPLOYMENT_ENVIRONMENT,
         "request_id": get_request_id(),
+        "trace_id": get_trace_id(),
     }
     if message is not None:
         payload["message"] = message

@@ -30,6 +30,13 @@ def get_request_id() -> str | None:
     return request_id_context.get()
 
 
+def get_trace_id() -> str | None:
+    span_context = trace.get_current_span().get_span_context()
+    if not span_context.is_valid:
+        return None
+    return f"{span_context.trace_id:032x}"
+
+
 class RequestIdLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = get_request_id() or "-"

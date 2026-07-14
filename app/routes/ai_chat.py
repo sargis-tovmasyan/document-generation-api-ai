@@ -41,10 +41,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
 CHAT_DECISION_PROMPT = (
-    "Classify the current request. answer: greetings or questions; list_invoices: "
-    "show/find/summarize invoices; create_invoice: explicitly create an invoice; "
-    "remember_memory: save stated information; recall_memory: retrieve saved "
-    "information. Return only the action JSON. Request: __USER_MESSAGE__ JSON:"
+    "Classify the request and needed context. Actions: answer for greetings/questions; "
+    "list_invoices to show/find invoices; create_invoice to create one; remember_memory "
+    "to save stated information; recall_memory to retrieve it. Context: none for new "
+    "requests, recent_chat for follow-ups/retries, saved_memory for remembered facts, "
+    "both only when both are needed. Return action and context JSON only. "
+    "Recent chat:\n__RECENT_CHAT__\nRequest: __USER_MESSAGE__ JSON:"
 )
 CHAT_DECISION_SCHEMA = {
     "type": "object",
@@ -52,9 +54,13 @@ CHAT_DECISION_SCHEMA = {
         "action": {
             "type": "string",
             "enum": ["answer", "list_invoices", "create_invoice", "remember_memory", "recall_memory"],
-        }
+        },
+        "context": {
+            "type": "string",
+            "enum": ["none", "recent_chat", "saved_memory", "both"],
+        },
     },
-    "required": ["action"],
+    "required": ["action", "context"],
     "additionalProperties": False,
 }
 
@@ -69,18 +75,23 @@ INVOICE_REQUEST_PATTERN = re.compile(
     re.IGNORECASE,
 )
 ANSWER_META_TAIL_PATTERN = re.compile(
-    r"\s+(?:thought\s*:|reasoning?\s*:|reason(?:ing)?\b|confidence\s*:|the only current message is|the assistant thought|the answer\b|answer\s*:|end of conversation\b).*",
+    r"\s+(?:thought\s*:|thinking\s*:|reasoning?\s*:|reason(?:ing)?\b|confidence\s*:|the only current message is|the assistant thought|the answer\b|answer\s*:|end of conversation\b).*",
     re.IGNORECASE | re.DOTALL,
 )
 ROLE_ECHO_TAIL_PATTERN = re.compile(r"\s+(?:user|assistant)\s*:.*", re.IGNORECASE | re.DOTALL)
 THINK_CLOSE_PATTERN = re.compile(r"</think>", re.IGNORECASE)
 THINK_BLOCK_PATTERN = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
 THINK_TAG_PATTERN = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
-STRAY_TAG_PATTERN = re.compile(r"</?[a-z][a-z0-9_-]*\b[^>]*>", re.IGNORECASE)
+STRAY_TAG_PATTERN = re.compile(
+    r"</?(?:ing|analysis|reasoning|thought|answer|assistant|user)\b[^>]*>",
+    re.IGNORECASE,
+)
+MARKDOWN_BLOCK_PATTERN = re.compile(r"(?:^|\n)(?:```|~~~|\s*(?:[-*+] |\d+[.)] |> |\|))")
 
 
 class ChatDecision(BaseModel):
     action: Literal["answer", "list_invoices", "create_invoice", "remember_memory", "recall_memory"]
+    context: Literal["none", "recent_chat", "saved_memory", "both"] = "none"
     message: str = ""
 
 
@@ -113,9 +124,19 @@ def _load_chat_decision(content: str) -> ChatDecision:
     return ChatDecision.model_validate(raw_decision)
 
 
-async def _decide_chat_action(message: str) -> ChatDecision:
+async def _decide_chat_action(
+    message: str,
+    recent_messages: list[dict[str, object]] | None = None,
+) -> ChatDecision:
     log_event("ai.chat.decision.started", **include_frontend_message(message))
-    prompt = CHAT_DECISION_PROMPT.replace("__USER_MESSAGE__", message)
+    recent_chat = "\n".join(
+        f"{item.get('role', '')}: {item.get('content', '')}"
+        for item in (recent_messages or [])[-2:]
+    ) or "None"
+    prompt = (
+        CHAT_DECISION_PROMPT.replace("__RECENT_CHAT__", recent_chat)
+        .replace("__USER_MESSAGE__", message)
+    )
     content = await llm_client.complete_prompt(
         prompt,
         json_schema=CHAT_DECISION_SCHEMA,
@@ -136,7 +157,7 @@ def _guard_chat_decision(message: str, decision: ChatDecision) -> ChatDecision:
         return decision
     if INVOICE_REQUEST_PATTERN.search(message):
         return decision
-    return ChatDecision(action="answer", message="")
+    return ChatDecision(action="answer", context=decision.context, message="")
 
 
 def _load_chat_decision_from_text(content: str) -> ChatDecision:
@@ -202,6 +223,8 @@ def _clean_chat_answer(answer: str) -> str:
 
 def _trim_incomplete_tail(answer: str) -> str:
     normalized = answer.strip()
+    if MARKDOWN_BLOCK_PATTERN.search(normalized):
+        return normalized
     last_open = normalized.rfind("(")
     last_close = normalized.rfind(")")
     if last_open > last_close:

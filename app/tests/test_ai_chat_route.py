@@ -5,13 +5,25 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from app.routes.ai_chat import ChatDecision, _answer_chat_message, _clean_chat_answer, chat
+from app.routes.ai_chat import (
+    CHAT_DECISION_SCHEMA,
+    ChatDecision,
+    _answer_chat_message,
+    _clean_chat_answer,
+    _decide_chat_action,
+    chat,
+)
 from app.schemas import AiChatRequest, InvoiceDraft
 from app.services.invoice_service import InvoiceNumberConflictError
 from app.services.llm_client import LlmServiceError
 
 
 class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
+    def test_chat_decision_defaults_context_for_legacy_action_only_response(self) -> None:
+        decision = ChatDecision(action="answer")
+
+        self.assertEqual(decision.context, "none")
+
     def test_clean_chat_answer_removes_model_meta_tail(self) -> None:
         answer = _clean_chat_answer(
             "I'm glad to hear that! BBQ is a great way to enjoy food.\n\n"
@@ -36,6 +48,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(greeting, "Hi! How can I assist you today?")
         self.assertEqual(_clean_chat_answer("Hi\n\nReason"), "Hi")
+        self.assertEqual(_clean_chat_answer("1. Rose, 2. Tulip.\n\nThinking: hidden chain."), "1. Rose, 2. Tulip.")
         self.assertEqual(streaming_tail, "Hi")
         self.assertEqual(bbq, "I'm glad to hear that! BBQ is a great way to enjoy food.")
 
@@ -96,6 +109,37 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(answer, "I remember that.")
+
+    def test_clean_chat_answer_preserves_markdown_after_prose(self) -> None:
+        answer = _clean_chat_answer(
+            "Here is an example:\n\n```json\n{\"status\": \"ok\"}\n```"
+        )
+
+        self.assertEqual(
+            answer,
+            "Here is an example:\n\n```json\n{\"status\": \"ok\"}\n```",
+        )
+
+    async def test_retry_request_is_routed_with_recent_chat_context(self) -> None:
+        self.assertIn("context", CHAT_DECISION_SCHEMA["required"])
+        with patch(
+            "app.routes.ai_chat.llm_client.complete_prompt",
+            AsyncMock(return_value='{"action":"answer","context":"recent_chat"}'),
+        ) as complete_mock:
+            decision = await _decide_chat_action(
+                "try again",
+                recent_messages=[
+                    {"role": "user", "content": "Format this C++ code."},
+                    {"role": "assistant", "content": "```cpp\n#include <iostream>\n```"},
+                ],
+            )
+
+        self.assertEqual(decision.context, "recent_chat")
+        prompt = complete_mock.await_args.args[0]
+        self.assertIn("User: Try again", prompt)
+        self.assertIn('{"action":"answer","context":"recent_chat"}', prompt)
+        self.assertIn("Format this C++ code.", prompt)
+        self.assertIn("```cpp\n#include <iostream>\n```", prompt)
 
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(

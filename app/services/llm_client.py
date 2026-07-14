@@ -15,6 +15,7 @@ from app.config import (
     LLM_TIMEOUT_SECONDS,
 )
 from app.observability_events import include_llm_payload, log_event
+from app.services.llm_metrics import record_llm_response
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,8 @@ class LlmClient:
             )
             raise LlmServiceError("Local LLM returned an invalid response")
 
+        record_llm_response(data)
+
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
             log_event(
@@ -177,6 +180,7 @@ class LlmClient:
                             if isinstance(content, str) and content:
                                 yield content
                             if data.get("stop") is True:
+                                record_llm_response(data)
                                 break
         except httpx.HTTPError as error:
             duration_ms = (time.perf_counter() - started_at) * 1000
