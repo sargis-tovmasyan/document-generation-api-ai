@@ -15,8 +15,12 @@ GROUNDED_BASIC = """
   "due_date": null,
   "currency": "USD",
   "template_language": "en",
-  "business": {"name": null, "email": null, "address": null},
-  "client": {"name": "Alex", "email": null, "address": null},
+  "business_name": null,
+  "business_email": null,
+  "business_address": null,
+  "client_name": "Alex",
+  "client_email": null,
+  "client_address": null,
   "items": [{"description": "Website design", "quantity": 1, "unit_price": 300}],
   "notes": null,
   "payment_terms": null
@@ -50,6 +54,8 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
             kwargs["json_schema"]["properties"]["document_type"],
             {"type": "string", "enum": ["invoice"]},
         )
+        self.assertIn("business_name", kwargs["json_schema"]["properties"])
+        self.assertNotIn("business", kwargs["json_schema"]["properties"])
 
     async def test_generic_invoice_request_keeps_all_unknown_fields_empty(self) -> None:
         client = AsyncMock()
@@ -61,8 +67,12 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
           "due_date": null,
           "currency": null,
           "template_language": "en",
-          "business": {"name": null, "email": null, "address": null},
-          "client": {"name": null, "email": null, "address": null},
+          "business_name": null,
+          "business_email": null,
+          "business_address": null,
+          "client_name": null,
+          "client_email": null,
+          "client_address": null,
           "items": [],
           "notes": null,
           "payment_terms": null
@@ -102,8 +112,12 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
               "due_date": "2026-07-12",
               "currency": "USD",
               "template_language": "en",
-              "business": {"name": "Sargis Studio", "email": null, "address": null},
-              "client": {"name": "John Smith", "email": null, "address": null},
+              "business_name": "Sargis Studio",
+              "business_email": null,
+              "business_address": null,
+              "client_name": "John Smith",
+              "client_email": null,
+              "client_address": null,
               "items": [
                 {"description": "Product A", "quantity": 3, "unit_price": 99},
                 {"description": "Product B", "quantity": 2, "unit_price": 45}
@@ -124,6 +138,43 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(draft.items[0].description, "Product A")
         self.assertEqual(draft.items[1].unit_price, 45)
 
+    async def test_maps_all_explicit_fields_from_flat_grounding_response(self) -> None:
+        client = AsyncMock()
+        client.complete_prompt.return_value = """
+            {
+              "document_type": "invoice",
+              "invoice_number": "TEST-PR13-FIX-0714",
+              "issue_date": "2026-07-14",
+              "due_date": "2026-07-21",
+              "currency": "USD",
+              "template_language": "en",
+              "business_name": "QA Studio",
+              "business_email": null,
+              "business_address": null,
+              "client_name": "Gamma LLC",
+              "client_email": null,
+              "client_address": null,
+              "items": [
+                {"description": "website audit", "quantity": 1, "unit_price": 125}
+              ],
+              "notes": null,
+              "payment_terms": null
+            }
+            """
+
+        draft = await AiInvoiceExtractor(client).extract(
+            "Create invoice TEST-PR13-FIX-0714 from QA Studio for client Gamma LLC, "
+            "issued 2026-07-14, due 2026-07-21, USD, one website audit x1 at 125 USD."
+        )
+
+        self.assertEqual(draft.invoice_number, "TEST-PR13-FIX-0714")
+        self.assertEqual(str(draft.issue_date), "2026-07-14")
+        self.assertEqual(str(draft.due_date), "2026-07-21")
+        self.assertEqual(draft.business.name, "QA Studio")
+        self.assertEqual(draft.client.name, "Gamma LLC")
+        self.assertEqual(draft.items[0].description, "website audit")
+        client.complete_prompt.assert_awaited_once()
+
     async def test_rejects_markdown_or_invalid_extraction_json(self) -> None:
         client = AsyncMock()
         client.complete_prompt.return_value = "No invoice data found."
@@ -141,8 +192,12 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
               "due_date": "2026-06-20",
               "currency": "USD",
               "template_language": "en",
-              "business": {"name": null, "email": null, "address": null},
-              "client": {"name": null, "email": null, "address": null},
+              "business_name": null,
+              "business_email": null,
+              "business_address": null,
+              "client_name": null,
+              "client_email": null,
+              "client_address": null,
               "items": [],
               "notes": null,
               "payment_terms": null
