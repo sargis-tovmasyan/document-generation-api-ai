@@ -46,6 +46,7 @@ CHAT_DECISION_PROMPT = (
     "to save stated information; recall_memory to retrieve it. Context: none for new "
     "requests, recent_chat for follow-ups/retries, saved_memory for remembered facts, "
     "both only when both are needed. Return action and context JSON only. "
+    "Example: User: Try again -> {\"action\":\"answer\",\"context\":\"recent_chat\"}. "
     "Recent chat:\n__RECENT_CHAT__\nRequest: __USER_MESSAGE__ JSON:"
 )
 CHAT_DECISION_SCHEMA = {
