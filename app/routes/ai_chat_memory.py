@@ -9,10 +9,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
+from starlette.background import BackgroundTask
 
 from app.routes.ai_chat import (
     CHAT_LLM_UNAVAILABLE_MESSAGE,
     CHAT_PARSE_ERROR_MESSAGE,
+    ChatDecision,
     _clean_chat_answer,
     _decide_chat_action,
     _extract_invoice_draft_for_chat,
@@ -540,6 +542,15 @@ async def _stream_answer_with_memory(
 
 @router.post("", response_model=None)
 async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
+    return await _chat(payload)
+
+
+async def _chat(
+    payload: AiChatMemoryRequest,
+    *,
+    decision: ChatDecision | None = None,
+    learn_from_turn: bool = True,
+) -> dict[str, Any] | JSONResponse:
     ensure_chat_schema()
     thread = ensure_chat_thread(
         chat_id=payload.chat_id,
@@ -579,16 +590,17 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
         return response
 
-    try:
-        decision = await _decide_chat_action(payload.message)
-    except LlmServiceError:
-        response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
-        append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
-        return JSONResponse(status_code=503, content=response_body)
-    except (ValueError, ValidationError):
-        response_body = {"status": "ai_parse_error", "message": CHAT_PARSE_ERROR_MESSAGE, "chat_id": chat_id}
-        append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
-        return JSONResponse(status_code=422, content=response_body)
+    if decision is None:
+        try:
+            decision = await _decide_chat_action(payload.message)
+        except LlmServiceError:
+            response_body = {"status": "llm_unavailable", "message": CHAT_LLM_UNAVAILABLE_MESSAGE, "chat_id": chat_id}
+            append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
+            return JSONResponse(status_code=503, content=response_body)
+        except (ValueError, ValidationError):
+            response_body = {"status": "ai_parse_error", "message": CHAT_PARSE_ERROR_MESSAGE, "chat_id": chat_id}
+            append_chat_message(chat_id=chat_id, role="assistant", content=response_body["message"], metadata=response_body)
+            return JSONResponse(status_code=422, content=response_body)
 
     decision = _guard_chat_decision(payload.message, decision)
     action = decision.action
@@ -670,13 +682,14 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
             return JSONResponse(status_code=503, content=response_body)
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
-        await _learn_from_turn(
-            user_id=payload.user_id,
-            chat_id=chat_id,
-            session_state=session_state,
-            business_profile_id=payload.business_profile_id,
-            client_id=payload.client_id,
-        )
+        if learn_from_turn:
+            await _learn_from_turn(
+                user_id=payload.user_id,
+                chat_id=chat_id,
+                session_state=session_state,
+                business_profile_id=payload.business_profile_id,
+                client_id=payload.client_id,
+            )
         return response
 
     if action == "list_invoices":
@@ -688,13 +701,14 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
             "chat_id": chat_id,
         }
         append_chat_message(chat_id=chat_id, role="assistant", content=response["message"], metadata=response)
-        await _learn_from_turn(
-            user_id=payload.user_id,
-            chat_id=chat_id,
-            session_state=session_state,
-            business_profile_id=payload.business_profile_id,
-            client_id=payload.client_id,
-        )
+        if learn_from_turn:
+            await _learn_from_turn(
+                user_id=payload.user_id,
+                chat_id=chat_id,
+                session_state=session_state,
+                business_profile_id=payload.business_profile_id,
+                client_id=payload.client_id,
+            )
         return response
 
     draft = await _extract_invoice_draft_for_chat(payload.message)
@@ -720,13 +734,14 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
             "chat_id": chat_id,
         }
         append_chat_message(chat_id=chat_id, role="assistant", content="I need a few more details to complete your invoice.", metadata=response)
-        await _learn_from_turn(
-            user_id=payload.user_id,
-            chat_id=chat_id,
-            session_state=session_state,
-            business_profile_id=payload.business_profile_id,
-            client_id=payload.client_id,
-        )
+        if learn_from_turn:
+            await _learn_from_turn(
+                user_id=payload.user_id,
+                chat_id=chat_id,
+                session_state=session_state,
+                business_profile_id=payload.business_profile_id,
+                client_id=payload.client_id,
+            )
         return response
 
     invoice = invoice_draft_to_create(draft)
@@ -751,19 +766,27 @@ async def chat(payload: AiChatMemoryRequest) -> dict[str, Any] | JSONResponse:
         "chat_id": chat_id,
     }
     append_chat_message(chat_id=chat_id, role="assistant", content=f"Invoice created — {created_invoice['invoice_number']}", metadata=response)
-    await _learn_from_turn(
-        user_id=payload.user_id,
-        chat_id=chat_id,
-        session_state=session_state,
-        business_profile_id=payload.business_profile_id,
-        client_id=payload.client_id,
-    )
+    if learn_from_turn:
+        await _learn_from_turn(
+            user_id=payload.user_id,
+            chat_id=chat_id,
+            session_state=session_state,
+            business_profile_id=payload.business_profile_id,
+            client_id=payload.client_id,
+        )
     return response
 
 
 @router.post("/stream", response_class=StreamingResponse)
 async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
+    deferred_learning: dict[str, Any] | None = None
+
+    async def run_deferred_learning() -> None:
+        if deferred_learning is not None:
+            await _learn_from_turn(**deferred_learning)
+
     async def events() -> AsyncIterator[str]:
+        nonlocal deferred_learning
         ensure_chat_schema()
         thread = ensure_chat_thread(
             chat_id=payload.chat_id,
@@ -810,8 +833,20 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
             action = "answer"
 
         if action != "answer":
-            response = await chat(stream_payload)
+            response = await _chat(
+                stream_payload,
+                decision=decision,
+                learn_from_turn=False,
+            )
             content = _json_response_content(response) if isinstance(response, JSONResponse) else response
+            if content.get("status") in {"invoice_list", "missing_fields", "created"}:
+                deferred_learning = {
+                    "user_id": payload.user_id,
+                    "chat_id": chat_id,
+                    "session_state": get_session_state(chat_id),
+                    "business_profile_id": payload.business_profile_id,
+                    "client_id": payload.client_id,
+                }
             yield _sse_event("final", content)
             return
 
@@ -850,13 +885,17 @@ async def chat_stream(payload: AiChatMemoryRequest) -> StreamingResponse:
         answer = answer.strip() or "How can I help?"
         response = {"status": "answer", "message": answer, "chat_id": chat_id}
         append_chat_message(chat_id=chat_id, role="assistant", content=answer, metadata=response)
-        await _learn_from_turn(
-            user_id=payload.user_id,
-            chat_id=chat_id,
-            session_state=session_state,
-            business_profile_id=payload.business_profile_id,
-            client_id=payload.client_id,
-        )
+        deferred_learning = {
+            "user_id": payload.user_id,
+            "chat_id": chat_id,
+            "session_state": session_state,
+            "business_profile_id": payload.business_profile_id,
+            "client_id": payload.client_id,
+        }
         yield _sse_event("final", response)
 
-    return StreamingResponse(events(), media_type="text/event-stream")
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        background=BackgroundTask(run_deferred_learning),
+    )

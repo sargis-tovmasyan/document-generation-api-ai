@@ -11,6 +11,7 @@ from app.routes.ai_chat_memory import (
     _clean_memory_safe_answer,
     _stream_answer_with_memory,
     chat,
+    chat_stream,
 )
 from app.schemas import InvoiceDraft
 from app.services import chat_schema, knowledge_store
@@ -51,6 +52,42 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         messages = list_chat_messages(response["chat_id"])
         self.assertEqual([message["role"] for message in messages], ["user", "assistant"])
         self.assertEqual(messages[0]["content"], "Hi")
+
+    async def test_streamed_invoice_reuses_decision_and_defers_learning(self) -> None:
+        decision_mock = AsyncMock(return_value=ChatDecision(action="create_invoice"))
+        learning_mock = AsyncMock()
+        draft = InvoiceDraft.model_validate(
+            {
+                "invoice_number": "INV-STREAM-001",
+                "client": {"name": "Beta LLC"},
+            }
+        )
+
+        with (
+            patch("app.routes.ai_chat_memory._decide_chat_action", decision_mock),
+            patch(
+                "app.routes.ai_chat_memory._extract_invoice_draft_for_chat",
+                AsyncMock(return_value=draft),
+            ),
+            patch("app.routes.ai_chat_memory._learn_from_turn", learning_mock),
+        ):
+            response = await chat_stream(
+                AiChatMemoryRequest(message="Create invoice INV-STREAM-001 for Beta LLC")
+            )
+            chunks = [chunk async for chunk in response.body_iterator]
+
+            body = "".join(
+                chunk.decode() if isinstance(chunk, bytes) else chunk
+                for chunk in chunks
+            )
+            self.assertIn('event: final', body)
+            self.assertIn('"status": "missing_fields"', body)
+            decision_mock.assert_awaited_once()
+            learning_mock.assert_not_awaited()
+
+            self.assertIsNotNone(response.background)
+            await response.background()
+            learning_mock.assert_awaited_once()
 
     async def test_session_draft_continues_across_turns(self) -> None:
         first_draft = InvoiceDraft.model_validate(

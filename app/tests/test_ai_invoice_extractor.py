@@ -7,28 +7,6 @@ from app.services.ai_invoice_extractor import (
 )
 
 
-EXTRACTED_BASIC = """
-{
-  "document_type": "invoice",
-  "invoice_number": null,
-  "issue_date": null,
-  "due_date": null,
-  "currency": "usd",
-  "business_name": null,
-  "business_email": null,
-  "business_address": null,
-  "client_name": "Alex",
-  "client_email": null,
-  "client_address": "Yerevan, Armenia",
-  "item_description": "Website design",
-  "item_quantity": 1,
-  "item_unit_price": 300,
-  "notes": null,
-  "payment_terms": null
-}
-```
-"""
-
 GROUNDED_BASIC = """
 {
   "document_type": "invoice",
@@ -47,9 +25,9 @@ GROUNDED_BASIC = """
 
 
 class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
-    async def test_parses_extracts_and_grounds_invoice_json(self) -> None:
+    async def test_extracts_grounded_invoice_in_one_schema_constrained_call(self) -> None:
         client = AsyncMock()
-        client.complete_prompt.side_effect = [EXTRACTED_BASIC, GROUNDED_BASIC]
+        client.complete_prompt.return_value = GROUNDED_BASIC
 
         draft = await AiInvoiceExtractor(client).extract(
             "Create an invoice for Alex for website design, 300 dollars."
@@ -59,24 +37,50 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(draft.template_language, "en")
         self.assertEqual(draft.client.name, "Alex")
         self.assertEqual(draft.items[0].unit_price, 300)
-        self.assertEqual(client.complete_prompt.await_count, 2)
+        client.complete_prompt.assert_awaited_once()
 
-        extract_prompt = client.complete_prompt.await_args_list[0].args[0]
-        grounding_prompt = client.complete_prompt.await_args_list[1].args[0]
-        grounding_kwargs = client.complete_prompt.await_args_list[1].kwargs
+        prompt = client.complete_prompt.await_args.args[0]
+        kwargs = client.complete_prompt.await_args.kwargs
 
-        self.assertIn("Return only JSON", extract_prompt)
-        self.assertIn("Create an invoice for Alex for website design, 300 dollars.", extract_prompt)
-        self.assertIn("Review the extracted invoice JSON", grounding_prompt)
-        self.assertIn("Reason semantically", grounding_prompt)
-        self.assertIn("json_schema", grounding_kwargs)
+        self.assertIn("Return only JSON", prompt)
+        self.assertIn("Create an invoice for Alex for website design, 300 dollars.", prompt)
+        self.assertIn("Never invent", prompt)
+        self.assertIn("json_schema", kwargs)
+
+    async def test_generic_invoice_request_keeps_all_unknown_fields_empty(self) -> None:
+        client = AsyncMock()
+        client.complete_prompt.return_value = """
+        {
+          "document_type": "invoice",
+          "invoice_number": null,
+          "issue_date": null,
+          "due_date": null,
+          "currency": null,
+          "template_language": "en",
+          "business": {"name": null, "email": null, "address": null},
+          "client": {"name": null, "email": null, "address": null},
+          "items": [],
+          "notes": null,
+          "payment_terms": null
+        }
+        """
+
+        draft = await AiInvoiceExtractor(client).extract("Create a new invoice.")
+
+        self.assertIsNone(draft.invoice_number)
+        self.assertIsNone(draft.business.name)
+        self.assertIsNone(draft.client.name)
+        self.assertEqual(draft.items, [])
+        prompt = client.complete_prompt.await_args.args[0]
+        self.assertIn("generic request", prompt)
+        self.assertIn("empty items array", prompt)
 
     async def test_supports_semantic_template_language_grounding(self) -> None:
         client = AsyncMock()
-        client.complete_prompt.side_effect = [
-            EXTRACTED_BASIC,
-            GROUNDED_BASIC.replace('"template_language": "en"', '"template_language": "ru"'),
-        ]
+        client.complete_prompt.return_value = GROUNDED_BASIC.replace(
+            '"template_language": "en"',
+            '"template_language": "ru"',
+        )
 
         draft = await AiInvoiceExtractor(client).extract(
             "Create a Russian invoice for Alex for website design, 300 dollars."
@@ -86,22 +90,7 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_accepts_multiple_items_after_llm_grounding(self) -> None:
         client = AsyncMock()
-        client.complete_prompt.side_effect = [
-            """
-            {
-              "invoice_number": "INV-003",
-              "issue_date": "2026-06-28",
-              "due_date": "2026-07-12",
-              "currency": "USD",
-              "business_name": "Sargis Studio",
-              "client_name": "John Smith",
-              "items": [
-                {"description": "Product A", "quantity": 3, "unit_price": 99},
-                {"description": "Product B", "quantity": 2, "unit_price": 45}
-              ]
-            }
-            """,
-            """
+        client.complete_prompt.return_value = """
             {
               "document_type": "invoice",
               "invoice_number": "INV-003",
@@ -118,8 +107,7 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
               "notes": null,
               "payment_terms": null
             }
-            """,
-        ]
+            """
 
         draft = await AiInvoiceExtractor(client).extract(
             "Invoice INV-003 from Sargis Studio for John Smith, issued "
@@ -141,15 +129,7 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejects_invalid_grounded_draft_values(self) -> None:
         client = AsyncMock()
-        client.complete_prompt.side_effect = [
-            """
-            {
-              "issue_date": "2026-06-28",
-              "due_date": "2026-06-20",
-              "currency": "USD"
-            }
-            """,
-            """
+        client.complete_prompt.return_value = """
             {
               "document_type": "invoice",
               "invoice_number": null,
@@ -163,8 +143,7 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
               "notes": null,
               "payment_terms": null
             }
-            """,
-        ]
+            """
 
         with self.assertRaisesRegex(AiInvoiceParseError, "invalid invoice draft"):
             await AiInvoiceExtractor(client).extract(
