@@ -48,7 +48,8 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("Return only JSON", prompt)
         self.assertIn("Create an invoice for Alex for website design, 300 dollars.", prompt)
-        self.assertIn("Never invent", prompt)
+        self.assertIn("Never invent values", prompt)
+        self.assertLess(len(prompt), 1200)
         self.assertIn("json_schema", kwargs)
         self.assertEqual(
             kwargs["json_schema"]["properties"]["document_type"],
@@ -86,8 +87,8 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(draft.client.name)
         self.assertEqual(draft.items, [])
         prompt = client.complete_prompt.await_args.args[0]
-        self.assertIn("A generic", prompt)
-        self.assertIn("empty items array", prompt)
+        self.assertIn("generic invoice", prompt)
+        self.assertIn("[] when no items", prompt)
 
     async def test_supports_semantic_template_language_grounding(self) -> None:
         client = AsyncMock()
