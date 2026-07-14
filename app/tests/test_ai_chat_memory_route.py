@@ -13,10 +13,12 @@ from app.routes.ai_chat_memory import (
     _select_answer_context,
     _stream_answer_with_memory,
     chat,
+    chat_stream,
 )
 from app.schemas import InvoiceDraft
 from app.services import chat_schema, knowledge_store
 from app.services.chat_store import DEFAULT_USER_ID, get_chat_thread, get_session_state, list_chat_messages
+from app.services.llm_metrics import record_llm_response
 
 
 class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -53,6 +55,44 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         messages = list_chat_messages(response["chat_id"])
         self.assertEqual([message["role"] for message in messages], ["user", "assistant"])
         self.assertEqual(messages[0]["content"], "Hi")
+
+    async def test_stream_includes_request_diagnostics_and_persists_them(self) -> None:
+        async def fake_stream(*_: object, **__: object):
+            yield "Hello"
+            record_llm_response(
+                {
+                    "model": "/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+                    "tokens_evaluated": 12,
+                    "tokens_predicted": 3,
+                    "timings": {"predicted_ms": 1000},
+                }
+            )
+
+        with (
+            patch(
+                "app.routes.ai_chat_memory._decide_chat_action",
+                AsyncMock(return_value=ChatDecision(action="answer", context="none")),
+            ),
+            patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+            patch("app.routes.ai_chat_memory.get_request_id", return_value="request-123"),
+            patch("app.routes.ai_chat_memory.get_trace_id", return_value="trace-456"),
+            patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+        ):
+            response = await chat_stream(AiChatMemoryRequest(message="Hi"))
+            chunks = [chunk async for chunk in response.body_iterator]
+
+        body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+        self.assertIn('event: start\ndata: {"chat_id":', body)
+        self.assertIn('"request_id": "request-123"', body)
+        self.assertIn('"trace_id": "trace-456"', body)
+        self.assertIn('"total_tokens": 15', body)
+        self.assertIn('"tokens_per_second": 3.0', body)
+
+        chat_id = body.split('"chat_id": "', 1)[1].split('"', 1)[0]
+        messages = list_chat_messages(chat_id)
+        diagnostics = messages[-1]["metadata"]["diagnostics"]
+        self.assertEqual(diagnostics["request_id"], "request-123")
+        self.assertEqual(diagnostics["total_tokens"], 15)
 
     async def test_session_draft_continues_across_turns(self) -> None:
         first_draft = InvoiceDraft.model_validate(
@@ -152,6 +192,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(answer, "Use USD for Alex.")
+        self.assertEqual(complete_mock.call_args_list[1].kwargs["max_tokens"], 1024)
         prompt = complete_mock.call_args_list[1].args[0]
         self.assertIn("Client Alex usually uses USD.", prompt)
         self.assertIn("You may reason internally", prompt)
@@ -167,11 +208,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             recent_messages=[],
         )
 
-        self.assertNotIn("memory", prompt.lower())
-        self.assertNotIn("saved", prompt.lower())
-        self.assertNotIn("Recent messages", prompt)
-        self.assertIn("Use general knowledge", prompt)
-        self.assertIn("Do not refuse normal questions", prompt)
+        self.assertEqual(prompt, "User: name 5 flowers\nAssistant:")
 
     async def test_greeting_uses_no_context_and_no_memory_text(self) -> None:
         with patch(
@@ -231,12 +268,19 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer, "I can count letters in your message.")
 
     async def test_answer_prompt_keeps_thinking_instruction_for_streaming(self) -> None:
-        async def fake_stream(prompt: str, *_: object, **__: object):
+        seen_max_tokens: int | None = None
+
+        async def fake_stream(prompt: str, *_: object, **kwargs: object):
+            nonlocal seen_max_tokens
             self.assertIn("You may reason internally", prompt)
+            seen_max_tokens = int(kwargs["max_tokens"])
             yield "There are two r letters."
 
         with (
-            patch("app.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch(
+                "app.routes.ai_chat_memory.llm_client.complete_prompt",
+                AsyncMock(return_value='{"context":"none"}'),
+            ) as complete_mock,
             patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
         ):
             chunks = [
@@ -249,10 +293,13 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                     recent_messages=[],
                     thinking_enabled=True,
                     temperature_preset="low",
+                    selected_context="none",
                 )
             ]
 
         self.assertEqual("".join(chunks), "There are two r letters.")
+        self.assertEqual(seen_max_tokens, 1024)
+        complete_mock.assert_not_awaited()
 
     async def test_stream_answer_handles_letter_count_without_memory_disclaimer(self) -> None:
         async def fake_stream(*_: object, **__: object):
@@ -323,6 +370,38 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             ]
 
         self.assertEqual("".join(chunks), "Hi!")
+
+    async def test_stream_answer_preserves_cpp_header_and_complete_code_block(self) -> None:
+        async def fake_stream(*_: object, **__: object):
+            for chunk in [
+                "```cpp\n#include <iostream",
+                ">\n\nint main() {\n",
+                '    std::cout << "Hello, World!" << std::endl;\n',
+                "    return 0;\n}\n```",
+            ]:
+                yield chunk
+
+        with patch("app.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+            chunks = [
+                chunk
+                async for chunk in _stream_answer_with_memory(
+                    message="Format this C++ code in a code block.",
+                    session_state={},
+                    shared_memories=[],
+                    skill_memories=[],
+                    recent_messages=[],
+                    thinking_enabled=False,
+                    temperature_preset="low",
+                    selected_context="none",
+                )
+            ]
+
+        self.assertEqual(
+            "".join(chunks),
+            "```cpp\n#include <iostream>\n\nint main() {\n"
+            '    std::cout << "Hello, World!" << std::endl;\n'
+            "    return 0;\n}\n```",
+        )
 
     async def test_stream_answer_hides_memory_disclaimer_chunks_for_normal_question(self) -> None:
         async def fake_stream(*_: object, **__: object):
@@ -543,11 +622,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "app.routes.ai_chat_memory._decide_chat_action",
-                AsyncMock(return_value=ChatDecision(action="remember_memory")),
+                AsyncMock(return_value=ChatDecision(action="remember_memory", context="recent_chat")),
             ),
             patch(
                 "app.routes.ai_chat_memory.llm_client.complete_prompt",
-                AsyncMock(side_effect=['{"context":"recent_chat"}', '{"context":"recent_chat"}', "The 3rd flower was Tulip."]),
+                AsyncMock(return_value="The 3rd flower was Tulip."),
             ),
             patch("app.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):

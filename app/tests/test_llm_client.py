@@ -5,6 +5,7 @@ from unittest.mock import patch
 import httpx
 
 from app.services.llm_client import LlmClient, LlmServiceError
+from app.services.llm_metrics import LlmRequestMetrics, reset_llm_request_metrics, set_llm_request_metrics
 
 
 class FakeResponse:
@@ -47,6 +48,39 @@ class FakeAsyncClient:
         type(self).last_url = url
         type(self).last_payload = json
         return type(self).response
+
+
+class FakeStreamResponse:
+    def raise_for_status(self) -> None:
+        return None
+
+    async def __aenter__(self) -> "FakeStreamResponse":
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        return None
+
+    async def aiter_lines(self):
+        yield 'data: {"content":"Hi","stop":false}'
+        yield (
+            'data: {"content":"","stop":true,'
+            '"model":"/models/Qwen.gguf","tokens_evaluated":8,"tokens_predicted":2,'
+            '"timings":{"predicted_ms":500}}'
+        )
+
+
+class FakeStreamingClient:
+    def __init__(self, **_: object) -> None:
+        pass
+
+    async def __aenter__(self) -> "FakeStreamingClient":
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        return None
+
+    def stream(self, *_: object, **__: object) -> FakeStreamResponse:
+        return FakeStreamResponse()
 
 
 class LlmClientTests(unittest.IsolatedAsyncioTestCase):
@@ -127,6 +161,21 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertRaisesRegex(LlmServiceError, "returned an empty answer"),
         ):
             await LlmClient().complete("Create an invoice note.")
+
+    async def test_records_final_stream_metrics(self) -> None:
+        metrics = LlmRequestMetrics(request_id="request-1", trace_id="trace-1")
+        token = set_llm_request_metrics(metrics)
+        try:
+            with patch("app.services.llm_client.httpx.AsyncClient", FakeStreamingClient):
+                chunks = [chunk async for chunk in LlmClient().stream_prompt("Say hi")]
+        finally:
+            reset_llm_request_metrics(token)
+
+        self.assertEqual(chunks, ["Hi"])
+        self.assertEqual(metrics.llm_calls, 1)
+        self.assertEqual(metrics.prompt_tokens, 8)
+        self.assertEqual(metrics.completion_tokens, 2)
+        self.assertEqual(metrics.model, "Qwen.gguf")
 
 
 if __name__ == "__main__":
