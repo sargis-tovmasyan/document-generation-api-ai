@@ -1,87 +1,178 @@
-# Backend Features
+# Backend Features and Endpoints
 
-This page explains what the Document Generation API can currently do. It is written for developers, testers, and product stakeholders who need a clear overview without reading the source code.
+This page explains what the Document Generation API currently does and which endpoints expose each capability. It is intended for developers, testers, and product stakeholders who need a practical overview without reading the source code.
 
 ## At a glance
 
-The backend combines conversational AI, invoice creation, PDF generation, chat history, and memory management. Most user-facing flows begin through the chat endpoint, while direct invoice endpoints are available for integrations that do not need a conversational interface.
+The backend provides:
 
-## Feature catalog
+- AI-assisted conversations with streamed responses
+- Invoice extraction, validation, creation, listing, and PDF download
+- Persistent chat threads and message history
+- Session, shared, and skill memory
+- Structured diagnostics and application logging
+- FastAPI-generated interactive API documentation
 
-| Feature | What it does | Endpoint |
-|---|---|---|
-| Service health check | Confirms that the backend is running and able to respond. Useful for uptime checks and deployment verification. | `GET /health` |
-| AI chat | Accepts a natural-language message and decides whether to answer a question, remember information, recall saved information, list invoices, or start/continue invoice creation. | `POST /ai/chat` |
-| Streaming AI chat | Provides the same conversational behavior as the normal chat endpoint, but streams the answer as Server-Sent Events so the frontend can display text while it is being generated. | `POST /ai/chat/stream` |
-| Recent conversation context | Uses recent messages from the current chat when a follow-up question depends on earlier parts of the conversation. | Built into `POST /ai/chat` and `POST /ai/chat/stream` |
-| Chat-scoped memory | Remembers information the user explicitly asks the assistant to keep during a chat, then recalls it later when relevant. | Built into `POST /ai/chat` and `POST /ai/chat/stream` |
-| Shared memory | Stores reusable facts associated with a user and makes them available across conversations. | `GET /shared-memories` and `PATCH /shared-memories/{memory_id}` |
-| Skill memory | Stores learned skills or reusable behavioral knowledge that can support later answers. | `GET /skill-memories` and `PATCH /skill-memories/{skill_id}` |
-| Memory review status | Allows a stored memory to be marked as `active`, `needs_review`, `disabled`, or `rejected`. | `PATCH /shared-memories/{memory_id}` and `PATCH /skill-memories/{skill_id}` |
-| Automatic learning from conversations | Extracts useful reusable information from completed chat turns and stores it for future use. | Internal behavior; triggered during chat processing |
-| Invoice intent detection | Recognizes when a user is asking to create an invoice, even when the request is written conversationally. | Built into `POST /ai/chat` and `POST /ai/chat/stream` |
-| Invoice draft extraction | Converts a natural-language invoice request into a structured draft without creating the final invoice. It also reports which required fields are still missing. | `POST /ai/invoice/extract` |
-| Invoice generation from text | Converts a natural-language request into an invoice and creates the PDF when enough information is available. If information is missing, it returns the missing fields instead of generating an incomplete document. | `POST /ai/invoice/generate` |
-| Multi-message invoice completion | Keeps an incomplete invoice draft in the chat session so the user can provide missing information in later messages. | Built into `POST /ai/chat` and `POST /ai/chat/stream` |
-| Complete a structured invoice draft | Accepts a draft that may have been filled by a form or previous AI step, validates it, and creates the final invoice when complete. | `POST /invoices/draft/complete` |
-| Natural-language item normalization | Understands item text such as “2 hours of consulting at 5000 each” and converts it into structured descriptions, quantities, and unit prices. | Used by `POST /invoices/draft/complete` |
-| Direct invoice creation | Creates an invoice from a fully structured request without using AI extraction. Suitable for trusted integrations and administrative tools. | `POST /invoices` |
-| Invoice list | Returns all stored invoices with their main details. | `GET /invoices` |
-| Invoice PDF download | Returns the generated invoice as a downloadable PDF file. | `GET /invoices/{invoice_id}/download` |
-| Generated-file hosting | Serves generated documents from the backend’s generated-files directory. | `GET /generated/{file_path}` |
-| Reset invoice storage | Deletes the current invoice records through the invoice store reset operation. This is mainly intended for development or controlled administration and should not be exposed casually in production. | `DELETE /invoices` |
-| Create a chat thread | Creates a new conversation container for a user, optionally linked to a business profile or client. | `POST /chat-threads` |
-| List chat threads | Returns active, archived, or deleted chat threads for a user. | `GET /chat-threads` |
-| Read a chat thread | Returns one thread together with its messages and current session state. | `GET /chat-threads/{chat_id}` |
-| Update a chat thread | Renames, archives, pins, or reorders a chat thread. | `PATCH /chat-threads/{chat_id}` |
-| Delete a chat thread | Soft-deletes a chat thread so it is removed from the active list without immediately erasing its stored data. | `DELETE /chat-threads/{chat_id}` |
-| Read thread messages | Returns the messages stored inside a chat thread. | `GET /chat-threads/{chat_id}/messages` |
-| Read session memory | Returns the current temporary state for a chat, including an unfinished document draft when one exists. | `GET /chat-threads/{chat_id}/session-memory` |
-| Clear document-specific session state | Removes the active document draft and related invoice context while keeping the chat thread itself. | `DELETE /chat-threads/{chat_id}/session-memory/document-scope` |
-| User UI settings | Stores and retrieves frontend preferences associated with a user. | `GET /user-ui-settings` and `PATCH /user-ui-settings` |
-| API validation | Validates request and response data with typed schemas and returns clear validation errors instead of silently accepting malformed data. | Applied across API endpoints |
-| Duplicate invoice protection | Prevents two invoices from being created with the same invoice number and returns HTTP `409 Conflict`. | Applied to invoice creation endpoints |
-| Request logging and tracing | Records structured request, invoice, and AI processing events to make failures and production behavior easier to investigate. | Internal behavior |
-| Interactive API documentation | FastAPI automatically exposes machine-readable and interactive API documentation. | `GET /docs`, `GET /redoc`, and `GET /openapi.json` |
+Most user-facing workflows start with `POST /ai/chat` or `POST /ai/chat/stream`. Direct invoice endpoints are available for integrations that already have structured data.
 
-## Main user flows
+## Quick navigation
+
+- [AI chat](#ai-chat)
+- [Invoice management](#invoice-management)
+- [Chat threads and settings](#chat-threads-and-settings)
+- [Memory](#memory)
+- [Common workflows](#common-workflows)
+- [Response behavior](#response-behavior)
+- [Current limitations](#current-limitations)
+
+## Service
+
+| Method and path | Purpose |
+|---|---|
+| `GET /health` | Confirms that the API process is responding. |
+| `GET /docs` | Opens the interactive Swagger UI generated by FastAPI. |
+| `GET /redoc` | Opens the generated ReDoc API reference. |
+| `GET /openapi.json` | Returns the machine-readable OpenAPI schema. |
+| `GET /generated/{file_path}` | Serves files from the generated-document directory. |
+
+## AI chat
+
+The chat layer accepts natural-language messages and uses the configured language model to decide whether it should answer a question, use conversation context, recall memory, list invoices, or create an invoice.
+
+| Method and path | Purpose |
+|---|---|
+| `POST /ai/chat` | Processes a message and returns one complete JSON response. |
+| `POST /ai/chat/stream` | Processes a message and streams Server-Sent Events while the answer is generated. |
+
+### Supported chat behavior
+
+- Answers general professional questions.
+- Uses recent messages from the same thread when a follow-up depends on them.
+- Saves or recalls information when the user explicitly requests memory behavior.
+- Detects invoice-list and invoice-creation requests.
+- Keeps incomplete invoice drafts in the current session until required fields are supplied.
+- Returns structured statuses so the frontend can choose the correct presentation.
+
+### Streaming events
+
+`POST /ai/chat/stream` sends these event types:
+
+| Event | Meaning |
+|---|---|
+| `start` | The request was accepted and includes the chat, request, and optional trace identifiers. |
+| `token` | Contains the next generated text fragment. |
+| `final` | Contains the final structured chat response and diagnostics. |
+
+Final diagnostics include the model name, request duration, LLM call count, prompt and completion token counts, total tokens, token generation rate, request ID, and trace ID when tracing is enabled.
+
+## Invoice management
+
+### AI-assisted invoice endpoints
+
+| Method and path | Purpose |
+|---|---|
+| `POST /ai/invoice/extract` | Converts natural-language invoice details into a structured draft and reports missing fields. It does not create an invoice. |
+| `POST /ai/invoice/generate` | Extracts invoice details and creates the invoice when the draft is complete. Otherwise, it reports missing fields. |
+
+### Structured invoice endpoints
+
+| Method and path | Purpose |
+|---|---|
+| `POST /invoices/draft/complete` | Validates and completes a draft collected by chat or a frontend form. Natural-language item descriptions are normalized before creation. |
+| `POST /invoices` | Creates an invoice from a complete structured request without AI extraction. |
+| `GET /invoices` | Lists stored invoices and their main details. |
+| `GET /invoices/{invoice_id}/download` | Downloads the generated invoice PDF. |
+| `DELETE /invoices` | Resets invoice storage. This is destructive and intended only for controlled administration or development. |
+
+The backend prevents duplicate invoice numbers and returns `409 Conflict` when a creation request reuses an existing number.
+
+## Chat threads and settings
+
+Chat threads persist conversation history and session state. The current implementation uses a default user because authentication and user profiles have not yet been added.
+
+| Method and path | Purpose |
+|---|---|
+| `POST /chat-threads` | Creates a conversation thread. |
+| `GET /chat-threads` | Lists active, archived, or deleted threads. |
+| `GET /chat-threads/{chat_id}` | Returns a thread with its messages and session state. |
+| `PATCH /chat-threads/{chat_id}` | Renames, archives, pins, or reorders a thread. |
+| `DELETE /chat-threads/{chat_id}` | Soft-deletes a thread. |
+| `GET /chat-threads/{chat_id}/messages` | Returns messages stored in a thread. |
+| `POST /chat-threads/{chat_id}/errors` | Persists a user-visible chat error, retry state, diagnostics, and optional debug data. |
+| `GET /chat-threads/{chat_id}/session-memory` | Returns temporary state for the thread, including an unfinished document draft. |
+| `DELETE /chat-threads/{chat_id}/session-memory/document-scope` | Clears document-specific session state without deleting the thread. |
+| `GET /user-ui-settings` | Returns saved frontend preferences for a user. |
+| `PATCH /user-ui-settings` | Updates saved frontend preferences for a user. |
+
+## Memory
+
+The backend has three memory scopes:
+
+- **Session memory** keeps temporary state inside one chat thread.
+- **Shared memory** stores reusable user facts that may be available across threads.
+- **Skill memory** stores reusable learned behavior or knowledge.
+
+| Method and path | Purpose |
+|---|---|
+| `GET /shared-memories` | Lists shared memories for a user. |
+| `PATCH /shared-memories/{memory_id}` | Changes a shared memory's review status. |
+| `GET /skill-memories` | Lists skill memories for a user. |
+| `PATCH /skill-memories/{skill_id}` | Changes a skill memory's review status. |
+
+Memory status can be `active`, `needs_review`, `disabled`, or `rejected`. See the [Memory System](https://github.com/sargis-tovmasyan/document-generation-api-ai/wiki/Memory-System) documentation for architecture and lifecycle details.
+
+## Common workflows
 
 ### Ask a normal question
 
-Send a message to `POST /ai/chat`. The backend decides that the request is a normal answer, selects only the relevant recent context or saved memory, and returns a user-facing response.
+Send the message to `POST /ai/chat` for a complete response or `POST /ai/chat/stream` for progressive text. Include the existing `chat_id` when continuing a thread so recent conversation context remains available.
 
 ### Create an invoice through chat
 
-1. Send the invoice request to `POST /ai/chat`.
-2. The backend extracts a draft and checks required fields.
-3. When details are missing, the response contains `status: "missing_fields"` and the current draft is kept in session memory.
-4. Send the missing information in the same chat.
-5. When the draft is complete, the backend creates the invoice and returns its ID, totals, currency, and PDF download URL.
+1. Send the request to a chat endpoint.
+2. The backend extracts a draft and validates required fields.
+3. If information is missing, the response uses `status: "missing_fields"` and stores the draft in session memory.
+4. Send the missing information using the same `chat_id`.
+5. When complete, the backend creates the invoice and returns its ID, totals, currency, and PDF URL.
 
 ### Create an invoice without chat
 
-Use `POST /ai/invoice/generate` for a natural-language request, or `POST /invoices` when the calling application already has fully structured invoice data.
+Use `POST /ai/invoice/generate` for natural-language input. Use `POST /invoices` when the calling application already has complete structured invoice data.
 
-### Continue an unfinished invoice from a form
+### Complete an invoice from a frontend form
 
-Use `POST /invoices/draft/complete`. The backend validates the draft, normalizes any natural-language item list, and either returns the remaining missing fields or creates the invoice.
+Send the draft to `POST /invoices/draft/complete`. The backend validates the fields, normalizes invoice items, and either reports remaining missing fields or creates the invoice.
 
-## Response behavior worth knowing
+## Response behavior
 
-- `200 OK` usually means the request was handled successfully.
-- `201 Created` is returned when a direct invoice is created.
-- `409 Conflict` means the invoice number already exists.
-- `422 Unprocessable Entity` means the request or AI-produced data could not be validated.
-- `503 Service Unavailable` means the configured language model is temporarily unavailable.
-- Chat responses use a `status` field such as `answer`, `missing_fields`, `created`, `invoice_list`, `llm_unavailable`, or `ai_parse_error` so the frontend can choose the correct UI.
+Chat responses include a `status` field. Common values are:
 
-## Current scope
+| Status | Meaning |
+|---|---|
+| `answer` | A normal conversational answer. |
+| `missing_fields` | More invoice information is required. |
+| `created` | An invoice was created successfully. |
+| `invoice_list` | The response contains stored invoices. |
+| `llm_unavailable` | The language-model service could not complete the request. |
+| `ai_parse_error` | Model output could not be converted into the required structured data. |
 
-The backend currently focuses on invoices as its document type. The architecture already separates chat, memory, document extraction, validation, storage, and PDF generation, which provides a foundation for adding more document types later.
+Common HTTP responses:
 
-## Production notes
+- `200 OK`: the request was handled successfully.
+- `201 Created`: a direct invoice was created.
+- `404 Not Found`: the requested thread, memory, invoice, or file does not exist.
+- `409 Conflict`: an invoice number already exists.
+- `422 Unprocessable Entity`: request data or AI-produced structured data failed validation.
+- `503 Service Unavailable`: the configured language model is unavailable.
 
-- Protect administrative or destructive endpoints, especially `DELETE /invoices`, before exposing the service publicly.
-- Configure authentication and tenant isolation before using the default user behavior in a multi-user production system.
-- Keep the language-model service, database, and generated-file storage monitored because chat and invoice generation depend on them.
-- Treat `/docs` and `/redoc` as developer references; this page is the human-readable product overview.
+## Observability
+
+The API emits structured logs for requests, AI processing, invoice operations, failures, and generated PDFs. Chat diagnostics include a request ID that can be used to find related log entries. A trace ID is included when OpenTelemetry tracing is enabled.
+
+## Current limitations
+
+- Invoices are currently the only generated document type.
+- Authentication and tenant isolation are not implemented; chats currently use a default user identity.
+- Shared invoice storage is not yet separated by authenticated user.
+- Administrative and destructive endpoints, especially `DELETE /invoices`, must be protected before public production use.
+- Chat and invoice generation depend on the language-model service, database, and generated-file storage being available.
