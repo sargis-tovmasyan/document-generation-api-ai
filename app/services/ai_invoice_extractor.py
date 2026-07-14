@@ -11,6 +11,8 @@ request has no facts. Copy the full invoice identifier. Map issued/issue date to
 issue_date, due date to due_date, sender/from party to business_name, and
 customer/for client party to client_name. Items contain only stated products or
 services; description excludes parties, dates, currency, quantity, and price.
+Client and business names are never items. If no product or service is stated,
+items must be []; never add generic services such as consulting.
 Map stated count and per-unit price. Normalize dates to YYYY-MM-DD and currency
 names/symbols to three-letter codes. Infer template_language from the message.
 Return JSON only and include every explicit fact.
@@ -90,7 +92,7 @@ class AiInvoiceExtractor:
             prompt,
             json_schema=INVOICE_GROUNDING_SCHEMA,
             max_tokens=512,
-            temperature=0.1,
+            temperature=0.0,
         )
 
         flat_draft = _load_invoice_json(content)
