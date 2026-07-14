@@ -72,7 +72,7 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(draft.client.name)
         self.assertEqual(draft.items, [])
         prompt = client.complete_prompt.await_args.args[0]
-        self.assertIn("generic request", prompt)
+        self.assertIn("A generic", prompt)
         self.assertIn("empty items array", prompt)
 
     async def test_supports_semantic_template_language_grounding(self) -> None:
