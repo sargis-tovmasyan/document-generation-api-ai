@@ -30,7 +30,7 @@ Invoice JSON:
 INVOICE_GROUNDING_SCHEMA = {
     "type": "object",
     "properties": {
-        "document_type": {"type": ["string", "null"]},
+        "document_type": {"type": "string", "enum": ["invoice"]},
         "invoice_number": {"type": ["string", "null"]},
         "issue_date": {"type": ["string", "null"]},
         "due_date": {"type": ["string", "null"]},

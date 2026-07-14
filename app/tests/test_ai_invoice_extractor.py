@@ -46,6 +46,10 @@ class AiInvoiceExtractorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Create an invoice for Alex for website design, 300 dollars.", prompt)
         self.assertIn("Never invent", prompt)
         self.assertIn("json_schema", kwargs)
+        self.assertEqual(
+            kwargs["json_schema"]["properties"]["document_type"],
+            {"type": "string", "enum": ["invoice"]},
+        )
 
     async def test_generic_invoice_request_keeps_all_unknown_fields_empty(self) -> None:
         client = AsyncMock()
