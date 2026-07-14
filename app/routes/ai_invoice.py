@@ -23,6 +23,7 @@ from app.services.ai_invoice_extractor import (
     AiInvoiceParseError,
     ai_invoice_extractor,
 )
+from app.services.document_template_fields import invoice_fields_to_show
 from app.services.invoice_draft_validator import (
     find_missing_invoice_fields,
     invoice_draft_to_create,
@@ -108,15 +109,18 @@ async def extract_invoice_draft(
         return draft
 
     missing_fields = find_missing_invoice_fields(draft)
+    fields_to_show = invoice_fields_to_show(missing_fields)
     response = AiInvoiceExtractResponse(
         status="missing_fields" if missing_fields else "ready",
         draft=draft,
         missing_fields=missing_fields,
+        fields_to_show=fields_to_show,
     )
     log_event(
         "invoice.extract.response.sent",
         status=response.status,
         missing_fields=missing_fields,
+        fields_to_show=[field.model_dump() for field in fields_to_show],
         draft=summarize_invoice_draft(draft),
         **include_response_body(summarize_response(response)),
     )
@@ -145,15 +149,18 @@ async def generate_invoice_from_message(
 
     missing_fields = find_missing_invoice_fields(draft)
     if missing_fields:
+        fields_to_show = invoice_fields_to_show(missing_fields)
         response = InvoiceDraftMissingResponse(
             status="missing_fields",
             missing_fields=missing_fields,
+            fields_to_show=fields_to_show,
         )
         log_event(
             "invoice.generate.response.sent",
             level=logging.WARNING,
             status=response.status,
             missing_fields=missing_fields,
+            fields_to_show=[field.model_dump() for field in fields_to_show],
             draft=summarize_invoice_draft(draft),
             **include_response_body(summarize_response(response)),
         )

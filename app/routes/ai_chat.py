@@ -41,25 +41,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai/chat", tags=["ai-chat"])
 
 CHAT_DECISION_PROMPT = (
-    "Classify the user request as one action and choose the context needed to answer it. "
-    "Use answer for greetings and professional questions. "
-    "Use list_invoices when the user asks to show, list, find, or summarize invoices. "
-    "Use create_invoice only when the user clearly wants to create an invoice. "
-    "Use remember_memory when the user asks you to remember or memorize information. "
-    "Use recall_memory when the user asks about information they previously asked you to remember. "
-    "Use context none for new requests, recent_chat for follow-ups about this chat, "
-    "saved_memory for explicitly remembered facts, and both only when both are needed. "
-    "Examples: "
-    "User: Hi JSON: {\"action\":\"answer\"}. "
-    "User: Hello JSON: {\"action\":\"answer\"}. "
-    "User: What payment terms should I use? JSON: {\"action\":\"answer\"}. "
-    "User: Show me all my invoices JSON: {\"action\":\"list_invoices\"}. "
-    "User: Create an invoice for Alex for design 300 dollars JSON: {\"action\":\"create_invoice\"}. "
-    "User: Remember number 1234 JSON: {\"action\":\"remember_memory\"}. "
-    "User: What number did I ask you to remember? JSON: {\"action\":\"recall_memory\"}. "
-    "User: Try again JSON: {\"action\":\"answer\",\"context\":\"recent_chat\"}. "
-    "Recent chat:\n__RECENT_CHAT__\n"
-    "User: __USER_MESSAGE__ JSON:"
+    "Classify the request and needed context. Actions: answer for greetings/questions; "
+    "list_invoices to show/find invoices; create_invoice to create one; remember_memory "
+    "to save stated information; recall_memory to retrieve it. Context: none for new "
+    "requests, recent_chat for follow-ups/retries, saved_memory for remembered facts, "
+    "both only when both are needed. Return action and context JSON only. "
+    "Example: User: Try again -> {\"action\":\"answer\",\"context\":\"recent_chat\"}. "
+    "Recent chat:\n__RECENT_CHAT__\nRequest: __USER_MESSAGE__ JSON:"
 )
 CHAT_DECISION_SCHEMA = {
     "type": "object",
@@ -299,131 +287,21 @@ async def _extract_invoice_draft_for_chat(message: str) -> InvoiceDraft | JSONRe
         isinstance(draft, JSONResponse)
         and draft.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     ):
-        fallback = _fallback_invoice_draft(message)
+        empty_draft = InvoiceDraft()
         log_event(
-            "ai.chat.invoice.extract.fallback_used",
+            "ai.chat.invoice.extract.empty_draft_used",
             **include_frontend_message(message),
-            draft=summarize_invoice_draft(fallback),
+            draft=summarize_invoice_draft(empty_draft),
         )
-        return fallback
+        return empty_draft
     if isinstance(draft, InvoiceDraft):
-        if not _has_item_amount(message):
-            data = draft.model_dump()
-            data["items"] = [
-                item.model_dump()
-                for item in draft.items
-                if item.unit_price is not None
-            ]
-            draft = InvoiceDraft.model_validate(data)
-        merged_draft = _merge_fallback_invoice_draft(draft, _fallback_invoice_draft(message))
         log_event(
             "ai.chat.invoice.extract.completed",
             **include_frontend_message(message),
-            draft=summarize_invoice_draft(merged_draft),
+            draft=summarize_invoice_draft(draft),
         )
-        return merged_draft
+        return draft
     return draft
-
-
-def _fallback_invoice_draft(message: str) -> InvoiceDraft:
-    return InvoiceDraft.model_validate(
-        {
-            "invoice_number": _extract_invoice_number(message),
-            "currency": _extract_currency(message),
-            "business": {"name": _extract_business_name(message)},
-            "client": {"name": _extract_client_name(message)},
-            "items": _extract_items(message),
-        }
-    )
-
-
-def _merge_fallback_invoice_draft(draft: InvoiceDraft, fallback: InvoiceDraft) -> InvoiceDraft:
-    data = draft.model_dump()
-    if data["invoice_number"] is None:
-        data["invoice_number"] = fallback.invoice_number
-    if data["currency"] is None:
-        data["currency"] = fallback.currency
-    if data["business"]["name"] is None:
-        data["business"]["name"] = fallback.business.name
-    if data["client"]["name"] is None:
-        data["client"]["name"] = fallback.client.name
-    if not data["items"] and fallback.items:
-        data["items"] = [item.model_dump() for item in fallback.items]
-    return InvoiceDraft.model_validate(data)
-
-
-def _has_item_amount(message: str) -> bool:
-    without_invoice_number = re.sub(r"\b[A-Z]{2,}-\d+\b", "", message, flags=re.IGNORECASE)
-    return bool(re.search(r"\d+(?:[.,]\d+)?\s*(?:dollars?|usd|amd|eur|rub|rur|\$|€|֏|₽)\b", without_invoice_number, flags=re.IGNORECASE))
-
-
-def _extract_invoice_number(message: str) -> str | None:
-    match = re.search(r"\b([A-Z]{2,}-\d+)\b", message, flags=re.IGNORECASE)
-    return match.group(1).upper() if match else None
-
-
-def _extract_client_name(message: str) -> str | None:
-    labeled_match = re.search(
-        r"\bclient(?:\s+name)?\s*(?:is|:)\s*(.+?)(?=\s*,?\s*(?:my\s+)?business\b|[,;]|$)",
-        message,
-        flags=re.IGNORECASE,
-    )
-    if labeled_match is not None:
-        name = labeled_match.group(1).strip()
-        return name if len(name.split()) <= 6 else None
-
-    match = re.search(
-        r"\b(?:for|to)\s+(?:my\s+)?(?:client\s+)?(.+?)(?=\s+(?:for|from|about|with)\b|[,.;]|$)",
-        message,
-        flags=re.IGNORECASE,
-    )
-    if match is None:
-        return None
-    name = match.group(1).strip()
-    return name if len(name.split()) <= 6 else None
-
-
-def _extract_business_name(message: str) -> str | None:
-    match = re.search(
-        r"\b(?:my\s+)?business(?:\s+name)?\s*(?:is|:)\s*(.+?)(?=[,;]|$)",
-        message,
-        flags=re.IGNORECASE,
-    )
-    if match is None:
-        return None
-    name = match.group(1).strip()
-    return name if len(name.split()) <= 8 else None
-
-
-def _extract_currency(message: str) -> str | None:
-    lowered = message.lower()
-    if "amd" in lowered or "dram" in lowered or "֏" in message:
-        return "AMD"
-    if "eur" in lowered or "euro" in lowered or "€" in message:
-        return "EUR"
-    if "rub" in lowered or "rur" in lowered or "ruble" in lowered or "₽" in message:
-        return "RUR"
-    if "usd" in lowered or "dollar" in lowered or "$" in message:
-        return "USD"
-    return None
-
-
-def _extract_items(message: str) -> list[dict]:
-    items: list[dict] = []
-    for match in re.finditer(
-        r"\bfor\s+(.+?)\s+(\d+(?:[.,]\d+)?)\s*(?:dollars?|usd|amd|eur|rub|rur|\$|€|֏|₽)\b",
-        message,
-        flags=re.IGNORECASE,
-    ):
-        description = match.group(1).split(" for ")[-1].strip(" ,.;")
-        items.append(
-            {
-                "description": description,
-                "quantity": 1,
-                "unit_price": match.group(2).replace(",", "."),
-            }
-        )
-    return items
 
 
 @router.post(

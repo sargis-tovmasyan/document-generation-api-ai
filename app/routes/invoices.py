@@ -22,6 +22,7 @@ from app.schemas import (
     InvoiceDraftMissingResponse,
     InvoiceListItem,
 )
+from app.services.document_template_fields import invoice_fields_to_show
 from app.services.invoice_draft_validator import (
     find_missing_invoice_fields,
     invoice_draft_to_create,
@@ -143,21 +144,25 @@ async def complete_invoice_draft(
     )
     draft = await _normalize_raw_invoice_items(payload.draft)
     missing_fields = find_missing_invoice_fields(draft)
+    fields_to_show = invoice_fields_to_show(missing_fields)
     log_event(
         "invoice.draft.validation.completed",
         missing_fields=missing_fields,
+        fields_to_show=[field.model_dump() for field in fields_to_show],
         draft=summarize_invoice_draft(draft),
     )
     if missing_fields:
         response = InvoiceDraftMissingResponse(
             status="missing_fields",
             missing_fields=missing_fields,
+            fields_to_show=fields_to_show,
         )
         log_event(
             "invoice.draft.complete.response.sent",
             level=logging.WARNING,
             status=response.status,
             missing_fields=missing_fields,
+            fields_to_show=[field.model_dump() for field in fields_to_show],
             **include_response_body(summarize_response(response)),
         )
         return response

@@ -38,6 +38,8 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, "missing_fields")
         self.assertIn("invoice_number", response.missing_fields)
         self.assertNotIn("client.email", response.missing_fields)
+        self.assertIn("invoice_number", [field.key for field in response.fields_to_show])
+        self.assertIn("business.name", [field.key for field in response.fields_to_show])
 
     async def test_returns_ready_for_complete_draft(self) -> None:
         draft = InvoiceDraft.model_validate(
@@ -67,6 +69,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, "ready")
         self.assertEqual(response.missing_fields, [])
+        self.assertEqual(response.fields_to_show, [])
 
     async def test_generates_invoice_from_complete_ai_draft(self) -> None:
         draft = InvoiceDraft.model_validate(
@@ -127,6 +130,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, "missing_fields")
         self.assertIn("invoice_number", response.missing_fields)
+        self.assertEqual(response.fields_to_show[0].key, "invoice_number")
         create_invoice_mock.assert_not_called()
 
     async def test_generate_maps_invoice_number_conflict_to_409(self) -> None:
