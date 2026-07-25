@@ -20,6 +20,7 @@ MODEL_DIR="${LLAMA_MODEL_DIR:-${SCRIPT_DIR}/models}"
 MODEL_PATH="${MODEL_DIR}/${MODEL_NAME}"
 MODEL_URL="${LLAMA_MODEL_URL:-${DEFAULT_MODEL_URL}}"
 export LLAMA_MODEL_PATH="${LLAMA_MODEL_PATH:-/models/${MODEL_NAME}}"
+export MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}LLAMA_MODEL_PATH"
 
 print_usage() {
     echo "Usage: ./start.sh [--no-cache|rebuild|--rebuild]"
