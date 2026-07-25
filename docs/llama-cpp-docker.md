@@ -57,6 +57,29 @@ Force a clean rebuild:
 ./start.sh --no-cache
 ```
 
+## Accelerator selection
+
+`./start.sh` uses `LLAMA_ACCELERATOR=auto` by default. It runs a Docker
+NVIDIA GPU probe before stopping the current stack. A successful probe uses
+the CUDA llama.cpp image; an unavailable GPU or runtime keeps the existing
+CPU image.
+
+Force CPU mode:
+
+```bash
+LLAMA_ACCELERATOR=cpu ./start.sh
+```
+
+Require CUDA:
+
+```bash
+LLAMA_ACCELERATOR=cuda ./start.sh
+```
+
+Forced CUDA exits without stopping the current stack when Docker cannot
+access an NVIDIA GPU. Auto mode does not silently fall back when CUDA was
+detected successfully but the CUDA image later fails to build or start.
+
 ## Useful commands
 
 ```bash
