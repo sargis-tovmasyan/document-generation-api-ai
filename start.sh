@@ -12,8 +12,8 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
     set +a
 fi
 
-DEFAULT_MODEL_FILE="MiniCPM5-1B-Q4_K_M.gguf"
-DEFAULT_MODEL_URL="https://huggingface.co/openbmb/MiniCPM5-1B-GGUF/resolve/main/MiniCPM5-1B-Q4_K_M.gguf"
+DEFAULT_MODEL_FILE="Qwen2.5-3B-Instruct-Q4_K_M.gguf"
+DEFAULT_MODEL_URL="https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
 MODEL_NAME="${LLAMA_MODEL_FILE:-${LLAMA_MODEL_PATH:-${DEFAULT_MODEL_FILE}}}"
 MODEL_NAME="${MODEL_NAME##*/}"
 MODEL_DIR="${LLAMA_MODEL_DIR:-${SCRIPT_DIR}/models}"
