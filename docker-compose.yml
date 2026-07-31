@@ -1,3 +1,5 @@
+name: doco-backend
+
 services:
   api:
     build: .
