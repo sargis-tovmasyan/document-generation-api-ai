@@ -1,0 +1,3 @@
+flake8
+pytest
+grpcio-tools==1.71.2
