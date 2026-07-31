@@ -3,6 +3,13 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
+from app.documents.application import document_application
+from app.documents.errors import (
+    DocumentConflictError,
+    DocumentExtractionInvalidError,
+    DocumentExtractionUnavailableError,
+)
+from app.documents.models import DocumentCreated
 from app.observability_events import (
     include_frontend_message,
     include_response_body,
@@ -19,17 +26,6 @@ from app.schemas import (
     InvoiceDraftCreatedResponse,
     InvoiceDraftMissingResponse,
 )
-from app.services.ai_invoice_extractor import (
-    AiInvoiceParseError,
-    ai_invoice_extractor,
-)
-from app.services.document_template_fields import invoice_fields_to_show
-from app.services.invoice_draft_validator import (
-    find_missing_invoice_fields,
-    invoice_draft_to_create,
-)
-from app.services.invoice_service import InvoiceNumberConflictError, create_invoice
-from app.services.llm_client import LlmServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -45,41 +41,45 @@ AI_PARSE_ERROR_MESSAGE = (
 )
 
 
+def _extraction_error_response(
+    error: DocumentExtractionUnavailableError | DocumentExtractionInvalidError,
+    message: str,
+) -> JSONResponse:
+    if isinstance(error, DocumentExtractionUnavailableError):
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        response_body = {
+            "status": "llm_unavailable",
+            "message": LLM_UNAVAILABLE_MESSAGE,
+        }
+        event_name = "invoice.extract.llm_unavailable"
+    else:
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response_body = {
+            "status": "ai_parse_error",
+            "message": AI_PARSE_ERROR_MESSAGE,
+        }
+        event_name = "invoice.extract.parse_error"
+
+    log_event(
+        event_name,
+        level=logging.WARNING,
+        error_type=type(error).__name__,
+        error=str(error),
+        **include_frontend_message(message),
+        **include_response_body(response_body),
+    )
+    return JSONResponse(status_code=status_code, content=response_body)
+
+
 async def _extract_draft_or_error(message: str) -> InvoiceDraft | JSONResponse:
     log_event(
         "invoice.extract.llm.started",
         **include_frontend_message(message),
     )
     try:
-        draft = await ai_invoice_extractor.extract(message)
-    except LlmServiceError as error:
-        response_body = {
-            "status": "llm_unavailable",
-            "message": LLM_UNAVAILABLE_MESSAGE,
-        }
-        log_event(
-            "invoice.extract.llm_unavailable",
-            level=logging.WARNING,
-            error_type=type(error).__name__,
-            error=str(error),
-            **include_frontend_message(message),
-            **include_response_body(response_body),
-        )
-        return JSONResponse(status_code=503, content=response_body)
-    except AiInvoiceParseError as error:
-        response_body = {
-            "status": "ai_parse_error",
-            "message": AI_PARSE_ERROR_MESSAGE,
-        }
-        log_event(
-            "invoice.extract.parse_error",
-            level=logging.WARNING,
-            error_type=type(error).__name__,
-            error=str(error),
-            **include_frontend_message(message),
-            **include_response_body(response_body),
-        )
-        return JSONResponse(status_code=422, content=response_body)
+        draft = await document_application.extract_draft(message)
+    except (DocumentExtractionUnavailableError, DocumentExtractionInvalidError) as error:
+        return _extraction_error_response(error, message)
 
     log_event(
         "invoice.extract.llm.completed",
@@ -104,27 +104,37 @@ async def extract_invoice_draft(
         "invoice.extract.received",
         **include_frontend_message(payload.message),
     )
-    draft = await _extract_draft_or_error(payload.message)
-    if isinstance(draft, JSONResponse):
-        return draft
+    try:
+        analysis = await document_application.extract_and_analyze(payload.message)
+    except (DocumentExtractionUnavailableError, DocumentExtractionInvalidError) as error:
+        return _extraction_error_response(error, payload.message)
 
-    missing_fields = find_missing_invoice_fields(draft)
-    fields_to_show = invoice_fields_to_show(missing_fields)
     response = AiInvoiceExtractResponse(
-        status="missing_fields" if missing_fields else "ready",
-        draft=draft,
-        missing_fields=missing_fields,
-        fields_to_show=fields_to_show,
+        status=analysis.status,
+        draft=analysis.draft,
+        missing_fields=analysis.missing_fields,
+        fields_to_show=analysis.fields_to_show,
     )
     log_event(
         "invoice.extract.response.sent",
         status=response.status,
-        missing_fields=missing_fields,
-        fields_to_show=[field.model_dump() for field in fields_to_show],
-        draft=summarize_invoice_draft(draft),
+        missing_fields=response.missing_fields,
+        fields_to_show=[field.model_dump() for field in response.fields_to_show],
+        draft=summarize_invoice_draft(response.draft),
         **include_response_body(summarize_response(response)),
     )
     return response
+
+
+def _created_invoice_summary(created: DocumentCreated) -> dict:
+    return {
+        "id": created.document_id,
+        "invoice_number": created.invoice_number,
+        "subtotal": created.subtotal,
+        "total": created.total,
+        "currency": created.currency,
+        "pdf_url": created.pdf_url,
+    }
 
 
 @router.post(
@@ -143,37 +153,14 @@ async def generate_invoice_from_message(
         "invoice.generate.received",
         **include_frontend_message(payload.message),
     )
-    draft = await _extract_draft_or_error(payload.message)
-    if isinstance(draft, JSONResponse):
-        return draft
-
-    missing_fields = find_missing_invoice_fields(draft)
-    if missing_fields:
-        fields_to_show = invoice_fields_to_show(missing_fields)
-        response = InvoiceDraftMissingResponse(
-            status="missing_fields",
-            missing_fields=missing_fields,
-            fields_to_show=fields_to_show,
-        )
-        log_event(
-            "invoice.generate.response.sent",
-            level=logging.WARNING,
-            status=response.status,
-            missing_fields=missing_fields,
-            fields_to_show=[field.model_dump() for field in fields_to_show],
-            draft=summarize_invoice_draft(draft),
-            **include_response_body(summarize_response(response)),
-        )
-        return response
-
-    invoice = invoice_draft_to_create(draft)
     try:
-        created_invoice = create_invoice(invoice)
-    except InvoiceNumberConflictError as error:
+        completion = await document_application.generate_from_message(payload.message)
+    except (DocumentExtractionUnavailableError, DocumentExtractionInvalidError) as error:
+        return _extraction_error_response(error, payload.message)
+    except DocumentConflictError as error:
         log_event(
             "invoice.generate.conflict",
             level=logging.WARNING,
-            invoice_number=invoice.invoice_number,
             error_type=type(error).__name__,
             error=str(error),
         )
@@ -182,19 +169,42 @@ async def generate_invoice_from_message(
             detail=str(error),
         ) from error
 
+    if completion.analysis is not None:
+        analysis = completion.analysis
+        response = InvoiceDraftMissingResponse(
+            status="missing_fields",
+            missing_fields=analysis.missing_fields,
+            fields_to_show=analysis.fields_to_show,
+        )
+        log_event(
+            "invoice.generate.response.sent",
+            level=logging.WARNING,
+            status=response.status,
+            missing_fields=analysis.missing_fields,
+            fields_to_show=[
+                field.model_dump() for field in analysis.fields_to_show
+            ],
+            draft=summarize_invoice_draft(analysis.draft),
+            **include_response_body(summarize_response(response)),
+        )
+        return response
+
+    created = completion.created
     response = InvoiceDraftCreatedResponse(
         status="created",
-        invoice_id=created_invoice["id"],
-        invoice_number=created_invoice["invoice_number"],
-        subtotal=created_invoice["subtotal"],
-        total=created_invoice["total"],
-        currency=created_invoice["currency"],
-        pdf_url=f"/invoices/{created_invoice['id']}/download",
+        invoice_id=created.document_id,
+        invoice_number=created.invoice_number,
+        subtotal=created.subtotal,
+        total=created.total,
+        currency=created.currency,
+        pdf_url=created.download_url,
     )
     log_event(
         "invoice.generate.response.sent",
         status=response.status,
-        created_invoice=summarize_created_invoice(created_invoice),
+        created_invoice=summarize_created_invoice(
+            _created_invoice_summary(created)
+        ),
         **include_response_body(summarize_response(response)),
     )
     return response
