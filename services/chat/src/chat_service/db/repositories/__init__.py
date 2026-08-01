@@ -1,0 +1,1 @@
+"""Chat-owned persistence repositories."""
