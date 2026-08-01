@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from documents.v1 import document_service_pb2 as documents_dot_v1_dot_document__service__pb2
+from backend_contracts.documents.v1 import document_service_pb2 as backend__contracts_dot_documents_dot_v1_dot_document__service__pb2
 
 GRPC_GENERATED_VERSION = '1.71.2'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in documents/v1/document_service_pb2_grpc.py depends on'
+        + f' but the generated code in backend_contracts/documents/v1/document_service_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -36,38 +36,38 @@ class DocumentServiceStub(object):
         """
         self.ExtractDraft = channel.unary_unary(
                 '/documents.v1.DocumentService/ExtractDraft',
-                request_serializer=documents_dot_v1_dot_document__service__pb2.ExtractDraftRequest.SerializeToString,
-                response_deserializer=documents_dot_v1_dot_document__service__pb2.ExtractDraftResponse.FromString,
+                request_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ExtractDraftRequest.SerializeToString,
+                response_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ExtractDraftResponse.FromString,
                 _registered_method=True)
         self.CompleteDraft = channel.unary_unary(
                 '/documents.v1.DocumentService/CompleteDraft',
-                request_serializer=documents_dot_v1_dot_document__service__pb2.CompleteDraftRequest.SerializeToString,
-                response_deserializer=documents_dot_v1_dot_document__service__pb2.CompleteDraftResponse.FromString,
+                request_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CompleteDraftRequest.SerializeToString,
+                response_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CompleteDraftResponse.FromString,
                 _registered_method=True)
         self.CreateDocument = channel.unary_unary(
                 '/documents.v1.DocumentService/CreateDocument',
-                request_serializer=documents_dot_v1_dot_document__service__pb2.CreateDocumentRequest.SerializeToString,
-                response_deserializer=documents_dot_v1_dot_document__service__pb2.CreateDocumentResponse.FromString,
+                request_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CreateDocumentRequest.SerializeToString,
+                response_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CreateDocumentResponse.FromString,
                 _registered_method=True)
         self.GetDocument = channel.unary_unary(
                 '/documents.v1.DocumentService/GetDocument',
-                request_serializer=documents_dot_v1_dot_document__service__pb2.GetDocumentRequest.SerializeToString,
-                response_deserializer=documents_dot_v1_dot_document__service__pb2.GetDocumentResponse.FromString,
+                request_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDocumentRequest.SerializeToString,
+                response_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDocumentResponse.FromString,
                 _registered_method=True)
         self.ListDocuments = channel.unary_unary(
                 '/documents.v1.DocumentService/ListDocuments',
-                request_serializer=documents_dot_v1_dot_document__service__pb2.ListDocumentsRequest.SerializeToString,
-                response_deserializer=documents_dot_v1_dot_document__service__pb2.ListDocumentsResponse.FromString,
+                request_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ListDocumentsRequest.SerializeToString,
+                response_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ListDocumentsResponse.FromString,
                 _registered_method=True)
         self.ResetDocuments = channel.unary_unary(
                 '/documents.v1.DocumentService/ResetDocuments',
-                request_serializer=documents_dot_v1_dot_document__service__pb2.ResetDocumentsRequest.SerializeToString,
-                response_deserializer=documents_dot_v1_dot_document__service__pb2.ResetDocumentsResponse.FromString,
+                request_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ResetDocumentsRequest.SerializeToString,
+                response_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ResetDocumentsResponse.FromString,
                 _registered_method=True)
         self.GetDownloadDescriptor = channel.unary_unary(
                 '/documents.v1.DocumentService/GetDownloadDescriptor',
-                request_serializer=documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorRequest.SerializeToString,
-                response_deserializer=documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorResponse.FromString,
+                request_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorRequest.SerializeToString,
+                response_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorResponse.FromString,
                 _registered_method=True)
 
 
@@ -121,38 +121,38 @@ def add_DocumentServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'ExtractDraft': grpc.unary_unary_rpc_method_handler(
                     servicer.ExtractDraft,
-                    request_deserializer=documents_dot_v1_dot_document__service__pb2.ExtractDraftRequest.FromString,
-                    response_serializer=documents_dot_v1_dot_document__service__pb2.ExtractDraftResponse.SerializeToString,
+                    request_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ExtractDraftRequest.FromString,
+                    response_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ExtractDraftResponse.SerializeToString,
             ),
             'CompleteDraft': grpc.unary_unary_rpc_method_handler(
                     servicer.CompleteDraft,
-                    request_deserializer=documents_dot_v1_dot_document__service__pb2.CompleteDraftRequest.FromString,
-                    response_serializer=documents_dot_v1_dot_document__service__pb2.CompleteDraftResponse.SerializeToString,
+                    request_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CompleteDraftRequest.FromString,
+                    response_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CompleteDraftResponse.SerializeToString,
             ),
             'CreateDocument': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateDocument,
-                    request_deserializer=documents_dot_v1_dot_document__service__pb2.CreateDocumentRequest.FromString,
-                    response_serializer=documents_dot_v1_dot_document__service__pb2.CreateDocumentResponse.SerializeToString,
+                    request_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CreateDocumentRequest.FromString,
+                    response_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CreateDocumentResponse.SerializeToString,
             ),
             'GetDocument': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDocument,
-                    request_deserializer=documents_dot_v1_dot_document__service__pb2.GetDocumentRequest.FromString,
-                    response_serializer=documents_dot_v1_dot_document__service__pb2.GetDocumentResponse.SerializeToString,
+                    request_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDocumentRequest.FromString,
+                    response_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDocumentResponse.SerializeToString,
             ),
             'ListDocuments': grpc.unary_unary_rpc_method_handler(
                     servicer.ListDocuments,
-                    request_deserializer=documents_dot_v1_dot_document__service__pb2.ListDocumentsRequest.FromString,
-                    response_serializer=documents_dot_v1_dot_document__service__pb2.ListDocumentsResponse.SerializeToString,
+                    request_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ListDocumentsRequest.FromString,
+                    response_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ListDocumentsResponse.SerializeToString,
             ),
             'ResetDocuments': grpc.unary_unary_rpc_method_handler(
                     servicer.ResetDocuments,
-                    request_deserializer=documents_dot_v1_dot_document__service__pb2.ResetDocumentsRequest.FromString,
-                    response_serializer=documents_dot_v1_dot_document__service__pb2.ResetDocumentsResponse.SerializeToString,
+                    request_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ResetDocumentsRequest.FromString,
+                    response_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ResetDocumentsResponse.SerializeToString,
             ),
             'GetDownloadDescriptor': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDownloadDescriptor,
-                    request_deserializer=documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorRequest.FromString,
-                    response_serializer=documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorResponse.SerializeToString,
+                    request_deserializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorRequest.FromString,
+                    response_serializer=backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -180,8 +180,8 @@ class DocumentService(object):
             request,
             target,
             '/documents.v1.DocumentService/ExtractDraft',
-            documents_dot_v1_dot_document__service__pb2.ExtractDraftRequest.SerializeToString,
-            documents_dot_v1_dot_document__service__pb2.ExtractDraftResponse.FromString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ExtractDraftRequest.SerializeToString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ExtractDraftResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -207,8 +207,8 @@ class DocumentService(object):
             request,
             target,
             '/documents.v1.DocumentService/CompleteDraft',
-            documents_dot_v1_dot_document__service__pb2.CompleteDraftRequest.SerializeToString,
-            documents_dot_v1_dot_document__service__pb2.CompleteDraftResponse.FromString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CompleteDraftRequest.SerializeToString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CompleteDraftResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -234,8 +234,8 @@ class DocumentService(object):
             request,
             target,
             '/documents.v1.DocumentService/CreateDocument',
-            documents_dot_v1_dot_document__service__pb2.CreateDocumentRequest.SerializeToString,
-            documents_dot_v1_dot_document__service__pb2.CreateDocumentResponse.FromString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CreateDocumentRequest.SerializeToString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.CreateDocumentResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -261,8 +261,8 @@ class DocumentService(object):
             request,
             target,
             '/documents.v1.DocumentService/GetDocument',
-            documents_dot_v1_dot_document__service__pb2.GetDocumentRequest.SerializeToString,
-            documents_dot_v1_dot_document__service__pb2.GetDocumentResponse.FromString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDocumentRequest.SerializeToString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDocumentResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -288,8 +288,8 @@ class DocumentService(object):
             request,
             target,
             '/documents.v1.DocumentService/ListDocuments',
-            documents_dot_v1_dot_document__service__pb2.ListDocumentsRequest.SerializeToString,
-            documents_dot_v1_dot_document__service__pb2.ListDocumentsResponse.FromString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ListDocumentsRequest.SerializeToString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ListDocumentsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -315,8 +315,8 @@ class DocumentService(object):
             request,
             target,
             '/documents.v1.DocumentService/ResetDocuments',
-            documents_dot_v1_dot_document__service__pb2.ResetDocumentsRequest.SerializeToString,
-            documents_dot_v1_dot_document__service__pb2.ResetDocumentsResponse.FromString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ResetDocumentsRequest.SerializeToString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.ResetDocumentsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -342,8 +342,8 @@ class DocumentService(object):
             request,
             target,
             '/documents.v1.DocumentService/GetDownloadDescriptor',
-            documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorRequest.SerializeToString,
-            documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorResponse.FromString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorRequest.SerializeToString,
+            backend__contracts_dot_documents_dot_v1_dot_document__service__pb2.GetDownloadDescriptorResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -4,8 +4,9 @@ import sys
 from google.protobuf import descriptor_pb2
 
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
-PROTO_RELATIVE_PATH = "contracts/documents/v1/document_service.proto"
+CONTRACT_ROOT = Path(__file__).resolve().parents[1]
+PROTO_ROOT = CONTRACT_ROOT / "schemas" / "proto"
+PROTO_RELATIVE_PATH = "backend_contracts/documents/v1/document_service.proto"
 
 
 def _compile_descriptor(tmp_path: Path) -> descriptor_pb2.FileDescriptorProto:
@@ -15,11 +16,11 @@ def _compile_descriptor(tmp_path: Path) -> descriptor_pb2.FileDescriptorProto:
             sys.executable,
             "-m",
             "grpc_tools.protoc",
-            "-Icontracts",
+            f"-I{PROTO_ROOT}",
             f"--descriptor_set_out={descriptor_path}",
             PROTO_RELATIVE_PATH,
         ],
-        cwd=BACKEND_ROOT,
+        cwd=CONTRACT_ROOT,
         capture_output=True,
         text=True,
         check=False,
@@ -54,19 +55,19 @@ def test_generated_python_modules_match_the_contract(tmp_path: Path) -> None:
             sys.executable,
             "-m",
             "grpc_tools.protoc",
-            "-Icontracts",
+            f"-I{PROTO_ROOT}",
             f"--python_out={generated_root}",
             f"--grpc_python_out={generated_root}",
             PROTO_RELATIVE_PATH,
         ],
-        cwd=BACKEND_ROOT,
+        cwd=CONTRACT_ROOT,
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0, result.stderr
 
-    committed_root = BACKEND_ROOT / "contracts" / "python" / "documents" / "v1"
-    generated_package = generated_root / "documents" / "v1"
+    committed_root = CONTRACT_ROOT / "src" / "backend_contracts" / "documents" / "v1"
+    generated_package = generated_root / "backend_contracts" / "documents" / "v1"
     for filename in ("document_service_pb2.py", "document_service_pb2_grpc.py"):
         assert (committed_root / filename).read_bytes() == (generated_package / filename).read_bytes()
