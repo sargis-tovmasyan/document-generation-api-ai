@@ -1,3 +1,4 @@
+import ast
 import os
 from pathlib import Path
 import subprocess
@@ -6,6 +7,23 @@ import sys
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DOCUMENT_ROOT = BACKEND_ROOT / "document-service"
+
+
+def test_document_service_owns_only_document_source() -> None:
+    assert not (BACKEND_ROOT / "app").exists()
+    for source_path in (DOCUMENT_ROOT / "app").rglob("*.py"):
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        imported_modules = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported_modules.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_modules.append(node.module)
+        assert not any(
+            blocked in module
+            for module in imported_modules
+            for blocked in ("chat_service", "chat-service")
+        ), f"{source_path} crosses the service boundary: {imported_modules}"
 
 
 def test_document_service_initializes_only_document_tables(tmp_path: Path) -> None:

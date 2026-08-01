@@ -52,6 +52,8 @@ Each service owns its application, tests, dependencies, and image:
 ```text
 chat-service/
   app/
+  data/
+  docs/
   tests/
   Dockerfile
   requirements.txt
@@ -59,6 +61,8 @@ chat-service/
 
 document-service/
   app/
+  data/
+  generated/
   tests/
   templates/
   Dockerfile
@@ -94,23 +98,23 @@ Both services expose `/health` and `/ready`.
 
 ## Data and migration
 
-Service data is separated:
+Service data lives inside its owning project:
 
 ```text
-data/chat/chat.db
-data/documents/documents.db
-generated/
+chat-service/data/chat.db
+document-service/data/documents.db
+document-service/generated/
 ```
 
-When `data/app.db` exists, `start.sh` runs an idempotent migration before startup. It copies chat-owned and document-owned tables into their respective databases, verifies row counts, and records migration markers. The legacy `app.db` is never modified or deleted.
+During an upgrade, if the old `data/app.db` exists, `start.sh` runs an idempotent migration before startup. It copies owned tables into each service database, verifies row counts, and never modifies the old database. Fresh installations do not create a root `data/` folder.
 
 Manual migration:
 
 ```bash
 python scripts/migrate-monolith-db.py \
   --legacy data/app.db \
-  --chat data/chat/chat.db \
-  --documents data/documents/documents.db
+  --chat chat-service/data/chat.db \
+  --documents document-service/data/documents.db
 ```
 
 ## Model and environment
@@ -143,8 +147,6 @@ PYTHONPATH=chat-service:contracts/python python -m pytest chat-service/tests -q
 python -m pip install -r document-service/requirements-dev.txt
 PYTHONPATH=document-service:contracts/python python -m pytest document-service/tests -q
 
-python -m pytest tests/contracts tests/architecture tests/integration tests/migration -q
-bash tests/start-accelerator-selection.sh
 ```
 
 Regenerate protobuf bindings after changing the contract:
@@ -153,7 +155,7 @@ Regenerate protobuf bindings after changing the contract:
 ./scripts/generate-document-contract.sh
 ```
 
-CI runs contract, Chat, Document, integration, and Compose checks independently.
+CI runs the Chat and Document project suites independently. Contract and real-gRPC tests live with their owning service.
 
 ## Logs and operations
 
