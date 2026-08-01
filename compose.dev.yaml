@@ -1,17 +1,25 @@
 services:
   chat-migrate:
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
     volumes:
       - ./services/chat/data:/app/chat-data
   chat-service:
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
     ports:
       - "${CHAT_SERVICE_PORT:-8000}:8000"
     volumes:
       - ./services/chat/data:/app/chat-data
   document-migrate:
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
     volumes:
       - ./services/document/data:/app/document-data
       - ./services/document/generated:/app/generated
   document-service:
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
     ports:
       - "${DOCUMENT_SERVICE_PORT:-8001}:8001"
       - "127.0.0.1:${DOCUMENT_GRPC_PORT:-50051}:50051"
