@@ -1,0 +1,1 @@
+"""Document-owned persistence repositories."""

@@ -1,4 +1,5 @@
 import os
+from importlib.resources import files
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -7,14 +8,16 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(BASE_DIR / ".env")
 
 DATA_DIR = BASE_DIR / "data"
-DATABASE_PATH = Path(os.getenv("CHAT_DATABASE_PATH", str(DATA_DIR / "chat.db")))
-DOCUMENT_GRPC_TARGET = os.getenv("DOCUMENT_GRPC_TARGET", "127.0.0.1:50051")
-DOCUMENT_HTTP_BASE_URL = os.getenv(
-    "DOCUMENT_HTTP_BASE_URL", "http://127.0.0.1:8001"
-).rstrip("/")
-DOCUMENT_GRPC_TIMEOUT_SECONDS = float(
-    os.getenv("DOCUMENT_GRPC_TIMEOUT_SECONDS", "30")
+GENERATED_DIR = Path(os.getenv("DOCUMENT_GENERATED_DIR", str(BASE_DIR / "generated")))
+INVOICE_PDF_DIR = GENERATED_DIR / "invoices"
+TEMPLATES_DIR = Path(
+    os.getenv(
+        "DOCUMENT_TEMPLATES_DIR",
+        str(files("document_service").joinpath("templates")),
+    )
 )
+DATABASE_PATH = Path(os.getenv("DOCUMENT_DATABASE_PATH", str(DATA_DIR / "documents.db")))
+DOCUMENT_GRPC_ADDRESS = os.getenv("DOCUMENT_GRPC_ADDRESS", "0.0.0.0:50051")
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 LLM_COMPLETION_ENDPOINT = os.getenv("LLM_COMPLETION_ENDPOINT", "/completion")
@@ -24,7 +27,7 @@ LLM_CHAT_MAX_TOKENS = int(os.getenv("LLM_CHAT_MAX_TOKENS", "1024"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 LLAMA_MODEL_FILE = os.getenv("LLAMA_MODEL_FILE", "unknown")
 
-SERVICE_NAME = os.getenv("SERVICE_NAME", "chat-service")
+SERVICE_NAME = os.getenv("SERVICE_NAME", "document-service")
 DEPLOYMENT_ENVIRONMENT = os.getenv("DEPLOYMENT_ENVIRONMENT", "local")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
@@ -69,3 +72,4 @@ OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv(
 
 def ensure_directories() -> None:
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    INVOICE_PDF_DIR.mkdir(parents=True, exist_ok=True)
