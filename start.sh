@@ -69,9 +69,9 @@ select_accelerator() {
 }
 
 configure_compose_files() {
-    COMPOSE_FILES=(-f docker-compose.yml)
+    COMPOSE_FILES=(-f compose.yaml -f compose.dev.yaml)
     if [ "$1" = "cuda" ]; then
-        COMPOSE_FILES+=(-f docker-compose.gpu.yml)
+        COMPOSE_FILES+=(-f compose.gpu.yaml)
     fi
 }
 
@@ -82,9 +82,9 @@ run_compose() {
 prepare_service_storage() {
     local root_dir="${1:-${SCRIPT_DIR}}"
     mkdir -p \
-        "${root_dir}/chat-service/data" \
-        "${root_dir}/document-service/data" \
-        "${root_dir}/document-service/generated/invoices"
+        "${root_dir}/services/chat/data" \
+        "${root_dir}/services/document/data" \
+        "${root_dir}/services/document/generated/invoices"
 }
 
 migrate_legacy_database() {
@@ -105,8 +105,8 @@ migrate_legacy_database() {
 
     "${python_command}" "${SCRIPT_DIR}/scripts/migrate-monolith-db.py" \
         --legacy "${legacy_path}" \
-        --chat "${SCRIPT_DIR}/chat-service/data/chat.db" \
-        --documents "${SCRIPT_DIR}/document-service/data/documents.db"
+        --chat "${SCRIPT_DIR}/services/chat/data/chat.db" \
+        --documents "${SCRIPT_DIR}/services/document/data/documents.db"
 }
 
 detect_compose() {

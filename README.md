@@ -1,178 +1,54 @@
-# Doco Backend
+# Doco Backend Workspace
 
-The backend is two independently deployable FastAPI services connected by a versioned gRPC contract.
+Doco is a Python 3.12 uv workspace containing two independently deployable APIs and one versioned Contracts package.
 
 ```text
-chat-service/       Chat, threads, streaming, memories, and orchestration
-document-service/   Invoice extraction, validation, persistence, PDF generation
-contracts/          documents.v1 protobuf contract and generated Python bindings
+services/chat/       frontend-facing chat, threads, memories, and document compatibility proxy
+services/document/   invoice extraction, persistence, gRPC transport, and PDF generation
+packages/contracts/  documents.v1 protobuf source and generated Python bindings
+infra/               llama.cpp deployment and the existing Alloy/Loki/Grafana stack
 ```
 
-The frontend configures only Chat Service. Chat owns `/ai/chat`, thread, and memory routes, and proxies the existing invoice/download HTTP paths to Document Service for compatibility. Chat's application-level document operations use gRPC; the services do not import each other's code or share a database.
+Chat and Document own separate SQLite databases. They share neither application code nor storage. Chat calls Document through `documents.v1.DocumentService` and preserves the frontend's existing HTTP paths through a compatibility proxy. Both services may use the shared llama.cpp endpoint.
 
-## Start locally
+## Local startup
 
-Requirements:
-
-- Docker Desktop on Windows/macOS, or Docker Engine with Compose on Linux
-- `curl` or `wget` if the configured model is not present
-- NVIDIA Container Toolkit only when using an NVIDIA GPU
-
-From this directory:
+Docker Desktop/Engine with Compose and `curl` or `wget` are required.
 
 ```bash
 ./start.sh
 ```
 
-The script works in Git Bash on Windows, macOS, and Linux. It automatically uses the RTX 3090 CUDA image when Docker can access the NVIDIA GPU; otherwise it uses the CPU image. Override detection with:
+The script works in Git Bash, macOS, and Linux. It combines `compose.yaml` with `compose.dev.yaml`, automatically adds `compose.gpu.yaml` when Docker can access an NVIDIA GPU, downloads Qwen when absent, runs both migration jobs, and starts the stack. Override detection with `LLAMA_ACCELERATOR=cpu` or `LLAMA_ACCELERATOR=cuda`.
+
+| Endpoint | Address |
+|---|---|
+| Chat HTTP / frontend API | `http://localhost:8000` |
+| Document HTTP | `http://localhost:8001` |
+| Document gRPC | `127.0.0.1:50051` |
+| llama.cpp | `http://127.0.0.1:8080` |
+| Grafana | `http://localhost:3000` |
+
+The CUDA image is compiled only for RTX 3090 compute capability 8.6. A CPU-only Ubuntu VPS uses the base and development files without the GPU override.
+
+## Development
+
+Install uv 0.11.32 and run from this directory:
 
 ```bash
-LLAMA_ACCELERATOR=cpu ./start.sh
-LLAMA_ACCELERATOR=cuda ./start.sh
+uv sync --frozen
+uv run --frozen --package doco-chat-service pytest services/chat/tests -q
+uv run --frozen --package doco-document-service pytest services/document/tests -q
+uv run --frozen --package doco-backend-contracts pytest packages/contracts/tests -q
 ```
 
-Use `./start.sh --no-cache` for a clean image rebuild.
-
-Services:
-
-| Service | Address | Purpose |
-|---|---|---|
-| Chat HTTP | `http://localhost:8000` | Frontend entry point and chat API |
-| Document HTTP | `http://localhost:8001` | Direct document API |
-| Document gRPC | `127.0.0.1:50051` | Typed Chat-to-Document boundary |
-| llama.cpp | `http://127.0.0.1:8080` | Local OpenAI-compatible model server |
-| Grafana | `http://localhost:3000` | Logs and observability |
-
-Docker Desktop shows `doco-backend-chat-service-1` and `doco-backend-document-service-1` as separate containers.
-
-## Service projects
-
-Each service owns its application, tests, dependencies, and image:
-
-```text
-chat-service/
-  app/
-  data/
-  docs/
-  tests/
-  Dockerfile
-  requirements.txt
-  requirements-dev.txt
-
-document-service/
-  app/
-  data/
-  generated/
-  tests/
-  templates/
-  Dockerfile
-  requirements.txt
-  requirements-dev.txt
-```
-
-Document Service alone contains WeasyPrint/templates and mounts generated files. Chat Service does not contain or import document persistence/rendering code.
-
-## APIs
-
-Chat Service owns:
-
-- `POST /ai/chat`
-- `POST /ai/chat/stream`
-- `/chat-threads`
-- `/shared-memories`
-- `/skill-memories`
-- compatibility proxy paths `/ai/invoice/*`, `/invoices/*`, and `/generated/*`
-
-Document Service owns:
-
-- `POST /ai/invoice/extract`
-- `POST /ai/invoice/generate`
-- `POST /invoices/draft/complete`
-- `POST /invoices`
-- `GET /invoices`
-- `DELETE /invoices`
-- `GET /invoices/{id}/download`
-- `documents.v1.DocumentService` on gRPC port 50051
-
-Both services expose `/health` and `/ready`.
-
-## Data and migration
-
-Service data lives inside its owning project:
-
-```text
-chat-service/data/chat.db
-document-service/data/documents.db
-document-service/generated/
-```
-
-During an upgrade, if the old `data/app.db` exists, `start.sh` runs an idempotent migration before startup. It copies owned tables into each service database, verifies row counts, and never modifies the old database. Fresh installations do not create a root `data/` folder.
-
-Manual migration:
+Regenerate protobuf bindings with `./scripts/generate-document-contract.sh`. Apply migrations with:
 
 ```bash
-python scripts/migrate-monolith-db.py \
-  --legacy data/app.db \
-  --chat chat-service/data/chat.db \
-  --documents document-service/data/documents.db
+uv run --package doco-chat-service alembic -c services/chat/alembic.ini upgrade head
+uv run --package doco-document-service alembic -c services/document/alembic.ini upgrade head
 ```
 
-## Model and environment
+Runtime state is ignored under `services/chat/data`, `services/document/data`, `services/document/generated`, and root `models`.
 
-The default model is Qwen 2.5 3B Instruct Q4_K_M:
-
-```text
-Qwen2.5-3B-Instruct-Q4_K_M.gguf
-```
-
-Copy `.env.example` to `.env` to override settings. Important variables include:
-
-- `LLAMA_MODEL_FILE`, `LLAMA_MODEL_URL`
-- `LLAMA_ACCELERATOR=auto|cuda|cpu`
-- `LLAMA_CONTEXT_SIZE`, `LLAMA_THREADS`, `LLAMA_PARALLEL`
-- `LLM_CHAT_MAX_TOKENS`, `LLM_TIMEOUT_SECONDS`
-- `CHAT_SERVICE_PORT`, `DOCUMENT_SERVICE_PORT`, `DOCUMENT_GRPC_PORT`
-- `DOCUMENT_GRPC_TIMEOUT_SECONDS`
-
-The CUDA build targets compute capability 8.6 specifically for the RTX 3090. CPU-only Ubuntu deployments use the base Compose file without CUDA requirements.
-
-## Tests
-
-Use Python 3.12.
-
-```bash
-python -m pip install -r chat-service/requirements-dev.txt
-PYTHONPATH=chat-service:contracts/python python -m pytest chat-service/tests -q
-
-python -m pip install -r document-service/requirements-dev.txt
-PYTHONPATH=document-service:contracts/python python -m pytest document-service/tests -q
-
-```
-
-Regenerate protobuf bindings after changing the contract:
-
-```bash
-./scripts/generate-document-contract.sh
-```
-
-CI runs the Chat and Document project suites independently. Contract and real-gRPC tests live with their owning service.
-
-## Logs and operations
-
-```bash
-docker compose logs -f chat-service
-docker compose logs -f document-service
-docker compose logs -f llama-server
-docker compose ps
-docker compose down
-```
-
-Useful Loki queries:
-
-```logql
-{service_name=~"chat-service|document-service"} | json
-{service_name="chat-service"} | json | event="ai.chat.received"
-{service_name="document-service"} | json | event="invoice.extract.response.sent"
-```
-
-The two services can be deployed separately by building their Dockerfiles from the repository root. Both may point to the same llama.cpp deployment or to different compatible LLM endpoints.
+See [architecture](docs/architecture/overview.md), the [local-startup runbook](docs/runbooks/local-startup.md), and each service README for details.

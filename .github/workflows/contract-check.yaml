@@ -1,0 +1,24 @@
+name: Contract Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  generated-bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - run: uv sync --frozen --package doco-backend-contracts
+      - run: ./scripts/generate-document-contract.sh
+      - run: git diff --exit-code
+      - run: uv run --frozen --package doco-backend-contracts pytest packages/contracts/tests -q
