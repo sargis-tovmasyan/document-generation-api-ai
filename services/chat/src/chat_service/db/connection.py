@@ -2,7 +2,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from chat_service.core.config import DATABASE_PATH, ensure_directories
+from chat_service.core.config import DATABASE_PATH
 
 
 def get_connection() -> sqlite3.Connection:
@@ -23,7 +23,3 @@ def database_connection() -> Iterator[sqlite3.Connection]:
         raise
     finally:
         connection.close()
-
-
-def initialize_database() -> None:
-    ensure_directories()

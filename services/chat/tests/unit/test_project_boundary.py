@@ -26,7 +26,7 @@ def test_chat_service_owns_only_chat_source() -> None:
         ), f"{source_path} crosses the service boundary: {imported_modules}"
 
 
-def test_chat_service_initializes_only_chat_tables(tmp_path: Path) -> None:
+def test_chat_service_startup_does_not_create_schema(tmp_path: Path) -> None:
     database_path = tmp_path / "chat.db"
     environment = os.environ.copy()
     environment.update(
@@ -65,10 +65,4 @@ print(','.join(tables))
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == [
-        "Chat Service",
-        (
-            "chat_messages,chat_threads,memory_events,session_memories,"
-            "shared_memories,skill_memories,user_ui_settings"
-        ),
-    ]
+    assert result.stdout.splitlines() == ["Chat Service", ""]

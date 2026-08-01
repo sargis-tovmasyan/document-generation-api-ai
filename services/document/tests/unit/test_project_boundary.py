@@ -26,7 +26,7 @@ def test_document_service_owns_only_document_source() -> None:
         ), f"{source_path} crosses the service boundary: {imported_modules}"
 
 
-def test_document_service_initializes_only_document_tables(tmp_path: Path) -> None:
+def test_document_service_startup_does_not_create_schema(tmp_path: Path) -> None:
     database_path = tmp_path / "documents.db"
     environment = os.environ.copy()
     environment.update(
@@ -43,10 +43,11 @@ def test_document_service_initializes_only_document_tables(tmp_path: Path) -> No
     )
     program = """
 import sqlite3
-from document_service.db.connection import initialize_database
+from fastapi.testclient import TestClient
 from document_service.main import app
 
-initialize_database()
+with TestClient(app):
+    pass
 with sqlite3.connect(r'%s') as connection:
     tables = [row[0] for row in connection.execute(
         \"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%%' ORDER BY name\"
@@ -65,7 +66,4 @@ print(','.join(tables))
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == [
-        "Document Service",
-        "invoice_items,invoices",
-    ]
+    assert result.stdout.splitlines() == ["Document Service", ""]
