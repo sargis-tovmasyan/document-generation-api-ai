@@ -82,9 +82,9 @@ run_compose() {
 prepare_service_storage() {
     local root_dir="${1:-${SCRIPT_DIR}}"
     mkdir -p \
-        "${root_dir}/data/chat" \
-        "${root_dir}/data/documents" \
-        "${root_dir}/generated"
+        "${root_dir}/chat-service/data" \
+        "${root_dir}/document-service/data" \
+        "${root_dir}/document-service/generated/invoices"
 }
 
 migrate_legacy_database() {
@@ -99,14 +99,14 @@ migrate_legacy_database() {
     elif command -v python > /dev/null 2>&1; then
         python_command=python
     else
-        echo "A legacy data/app.db exists, but Python is unavailable for migration." >&2
+        echo "A legacy monolith database exists, but Python is unavailable for migration." >&2
         return 1
     fi
 
     "${python_command}" "${SCRIPT_DIR}/scripts/migrate-monolith-db.py" \
         --legacy "${legacy_path}" \
-        --chat "${SCRIPT_DIR}/data/chat/chat.db" \
-        --documents "${SCRIPT_DIR}/data/documents/documents.db"
+        --chat "${SCRIPT_DIR}/chat-service/data/chat.db" \
+        --documents "${SCRIPT_DIR}/document-service/data/documents.db"
 }
 
 detect_compose() {

@@ -52,7 +52,7 @@ asyncio.run(main())
 
     result = subprocess.run(
         [sys.executable, "-c", program],
-        cwd=BACKEND_ROOT / "tests",
+        cwd=CHAT_ROOT,
         env=environment,
         capture_output=True,
         text=True,
@@ -97,7 +97,7 @@ asyncio.run(main())
 
     result = subprocess.run(
         [sys.executable, "-c", program],
-        cwd=BACKEND_ROOT / "tests",
+        cwd=CHAT_ROOT,
         env=environment,
         capture_output=True,
         text=True,
