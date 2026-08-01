@@ -1,14 +1,24 @@
+name: doco-backend
+
 services:
-  api:
-    build: .
+  chat-service:
+    build:
+      context: .
+      dockerfile: chat-service/Dockerfile
     ports:
-      - "8000:8000"
+      - "${CHAT_SERVICE_PORT:-8000}:8000"
     depends_on:
+      document-service:
+        condition: service_healthy
       llama-server:
         condition: service_healthy
       alloy:
         condition: service_started
     environment:
+      CHAT_DATABASE_PATH: "/app/chat-data/chat.db"
+      DOCUMENT_GRPC_TARGET: "document-service:50051"
+      DOCUMENT_HTTP_BASE_URL: "http://document-service:8001"
+      DOCUMENT_GRPC_TIMEOUT_SECONDS: "${DOCUMENT_GRPC_TIMEOUT_SECONDS:-30}"
       LLM_BASE_URL: "${LLM_BASE_URL:-http://llama-server:8080}"
       LLM_COMPLETION_ENDPOINT: "${LLM_COMPLETION_ENDPOINT:-/completion}"
       LLM_TIMEOUT_SECONDS: "${LLM_TIMEOUT_SECONDS:-600}"
@@ -16,7 +26,7 @@ services:
       LLM_CHAT_MAX_TOKENS: "${LLM_CHAT_MAX_TOKENS:-1024}"
       LLM_TEMPERATURE: "${LLM_TEMPERATURE:-0.2}"
       LLAMA_MODEL_FILE: "${LLAMA_MODEL_FILE:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
-      SERVICE_NAME: "${SERVICE_NAME:-document-generation-api}"
+      SERVICE_NAME: "chat-service"
       DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-local}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       APP_LOG_DEBUG_PAYLOADS: "${APP_LOG_DEBUG_PAYLOADS:-false}"
@@ -28,8 +38,57 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://alloy:4318}"
       OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
     volumes:
-      - ./data:/app/data
+      - ./data/chat:/app/chat-data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  document-service:
+    build:
+      context: .
+      dockerfile: document-service/Dockerfile
+    ports:
+      - "${DOCUMENT_SERVICE_PORT:-8001}:8001"
+      - "127.0.0.1:${DOCUMENT_GRPC_PORT:-50051}:50051"
+    depends_on:
+      llama-server:
+        condition: service_healthy
+      alloy:
+        condition: service_started
+    environment:
+      DOCUMENT_DATABASE_PATH: "/app/document-data/documents.db"
+      DOCUMENT_GENERATED_DIR: "/app/generated"
+      DOCUMENT_GRPC_ADDRESS: "0.0.0.0:50051"
+      LLM_BASE_URL: "${LLM_BASE_URL:-http://llama-server:8080}"
+      LLM_COMPLETION_ENDPOINT: "${LLM_COMPLETION_ENDPOINT:-/completion}"
+      LLM_TIMEOUT_SECONDS: "${LLM_TIMEOUT_SECONDS:-600}"
+      LLM_MAX_TOKENS: "${LLM_MAX_TOKENS:-256}"
+      LLM_TEMPERATURE: "${LLM_TEMPERATURE:-0.2}"
+      LLAMA_MODEL_FILE: "${LLAMA_MODEL_FILE:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
+      SERVICE_NAME: "document-service"
+      DEPLOYMENT_ENVIRONMENT: "${DEPLOYMENT_ENVIRONMENT:-local}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      APP_LOG_DEBUG_PAYLOADS: "${APP_LOG_DEBUG_PAYLOADS:-false}"
+      APP_LOG_FRONTEND_MESSAGES: "${APP_LOG_FRONTEND_MESSAGES:-true}"
+      APP_LOG_LLM_RAW: "${APP_LOG_LLM_RAW:-false}"
+      APP_LOG_RESPONSE_BODY: "${APP_LOG_RESPONSE_BODY:-true}"
+      APP_LOG_MAX_FIELD_LENGTH: "${APP_LOG_MAX_FIELD_LENGTH:-2000}"
+      OTEL_ENABLED: "${OTEL_ENABLED:-true}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://alloy:4318}"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+    volumes:
+      - ./data/documents:/app/document-data
       - ./generated:/app/generated
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     restart: unless-stopped
 
   llama-server:

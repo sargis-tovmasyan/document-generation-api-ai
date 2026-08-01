@@ -6,6 +6,8 @@ __pycache__/
 data/*
 generated/*
 models/*
+chat-service/data/*
+document-service/data/*
 !data/.gitkeep
 !generated/invoices/.gitkeep
 !models/.gitkeep

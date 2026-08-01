@@ -59,4 +59,28 @@ grep -q -- '-DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined' \
     "${ROOT_DIR}/docker/llama.cpp/Dockerfile.cuda" ||
     fail "CUDA build should allow the driver library injected at runtime"
 
+compose_services="$(cd "${ROOT_DIR}" && docker compose -f docker-compose.yml config --services)"
+for service in chat-service document-service; do
+    if ! printf '%s\n' "${compose_services}" | grep -qx "${service}"; then
+        fail "Compose should define independent ${service} container"
+    fi
+done
+
+compose_config="$(cd "${ROOT_DIR}" && docker compose -f docker-compose.yml config)"
+printf '%s\n' "${compose_config}" | grep -q 'target: /app/chat-data' ||
+    fail "Chat Service should mount only chat data"
+printf '%s\n' "${compose_config}" | grep -q 'target: /app/document-data' ||
+    fail "Document Service should mount only document data"
+printf '%s\n' "${compose_config}" | grep -q 'target: /app/generated' ||
+    fail "Document Service should own generated files"
+
+storage_root="$(mktemp -d)"
+trap 'rm -rf "${storage_root}"' EXIT
+prepare_service_storage "${storage_root}"
+for directory in data/chat data/documents generated; do
+    if [ ! -d "${storage_root}/${directory}" ]; then
+        fail "start.sh should create ${directory}"
+    fi
+done
+
 echo "Accelerator selection tests passed."
