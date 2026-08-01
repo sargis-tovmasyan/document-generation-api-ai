@@ -3,7 +3,7 @@
 __pycache__
 .pytest_cache
 *.py[cod]
-chat-service/data
-document-service/data
-document-service/generated
+services/chat/data
+services/document/data
+services/document/generated
 data

@@ -1,0 +1,18 @@
+services:
+  llama-server:
+    build:
+      context: .
+      dockerfile: infra/deployment/llama.cpp/Dockerfile.cuda
+      args:
+        LLAMA_CPP_REF: ${LLAMA_CPP_REF:-master}
+        NVIDIA_CUDA_VERSION: ${NVIDIA_CUDA_VERSION:-12.6.3}
+        LLAMA_CUDA_ARCHITECTURES: "86"
+    environment:
+      LLAMA_EXTRA_ARGS: ${LLAMA_EXTRA_ARGS:---gpu-layers all --flash-attn on}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

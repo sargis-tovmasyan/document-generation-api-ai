@@ -1,9 +1,6 @@
-ARG NVIDIA_CUDA_VERSION=12.6.3
-
-FROM nvidia/cuda:${NVIDIA_CUDA_VERSION}-devel-ubuntu24.04 AS builder
+FROM debian:bookworm-slim AS builder
 
 ARG LLAMA_CPP_REF=master
-ARG LLAMA_BUILD_JOBS=4
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -16,18 +13,10 @@ RUN apt-get update \
 WORKDIR /src
 
 RUN git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp.git . \
-    && cmake -B build \
-        -DGGML_CUDA=ON \
-        -DCMAKE_CUDA_ARCHITECTURES=86 \
-        -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined \
-        -DGGML_NATIVE=OFF \
-        -DGGML_OPENMP=OFF \
-        -DLLAMA_CURL=OFF \
-    && cmake --build build --config Release -j "${LLAMA_BUILD_JOBS}" --target llama-server
+    && cmake -B build -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF \
+    && cmake --build build --config Release -j 1 --target llama-server
 
-ARG NVIDIA_CUDA_VERSION=12.6.3
-
-FROM nvidia/cuda:${NVIDIA_CUDA_VERSION}-runtime-ubuntu24.04
+FROM debian:bookworm-slim
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -38,7 +27,7 @@ RUN apt-get update \
 
 COPY --from=builder /src/build/bin/llama-server /usr/local/bin/llama-server
 COPY --from=builder /src/build/bin/*.so* /usr/local/lib/
-COPY docker/llama.cpp/entrypoint.sh /usr/local/bin/llama-server-entrypoint
+COPY infra/deployment/llama.cpp/entrypoint.sh /usr/local/bin/llama-server-entrypoint
 
 RUN chmod +x /usr/local/bin/llama-server-entrypoint \
     && ldconfig
