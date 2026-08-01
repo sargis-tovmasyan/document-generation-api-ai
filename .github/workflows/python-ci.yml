@@ -14,32 +14,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  contract:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
-          cache: "pip"
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: chat-service/requirements-dev.txt
+      - run: python -m pip install -r chat-service/requirements-dev.txt
+      - run: python -m pytest tests/contracts -q
+
+  chat-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: chat-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: chat-service/requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.txt
+      - run: flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics
+      - run: PYTHONPATH=.:../contracts/python python -m pytest -q
+
+  document-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: document-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: document-service/requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.txt
+      - run: flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics
+      - run: PYTHONPATH=.:../contracts/python python -m pytest -q
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+            chat-service/requirements-dev.txt
+            document-service/requirements-dev.txt
+      - run: |
+          python -m pip install -r chat-service/requirements-dev.txt
+          python -m pip install -r document-service/requirements-dev.txt
+      - run: python -m pytest tests/architecture tests/integration tests/migration -q
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
-          python -m pip install -r requirements.txt
-
-      - name: Lint critical errors
-        run: |
-          flake8 app --count --select=E9,F63,F7,F82 --show-source --statistics
-
-      - name: Run tests
-        run: |
-          pytest app/tests
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/start-accelerator-selection.sh

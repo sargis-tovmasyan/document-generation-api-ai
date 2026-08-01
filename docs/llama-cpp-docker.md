@@ -84,7 +84,7 @@ detected successfully but the CUDA image later fails to build or start.
 
 ```bash
 docker compose logs -f llama-server
-docker compose logs -f api
+docker compose logs -f chat-service document-service
 docker compose ps
 docker compose down
 ```

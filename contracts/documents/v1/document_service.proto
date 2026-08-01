@@ -8,6 +8,7 @@ service DocumentService {
   rpc CreateDocument(CreateDocumentRequest) returns (CreateDocumentResponse);
   rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse);
   rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+  rpc ResetDocuments(ResetDocumentsRequest) returns (ResetDocumentsResponse);
   rpc GetDownloadDescriptor(GetDownloadDescriptorRequest) returns (GetDownloadDescriptorResponse);
 }
 
@@ -143,6 +144,16 @@ message ListDocumentsRequest {
 
 message ListDocumentsResponse {
   repeated DocumentSummary documents = 1;
+}
+
+message ResetDocumentsRequest {
+  string request_id = 1;
+  string document_type = 2;
+}
+
+message ResetDocumentsResponse {
+  int64 deleted_documents = 1;
+  int64 deleted_items = 2;
 }
 
 message GetDownloadDescriptorRequest {
