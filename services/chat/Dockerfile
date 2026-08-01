@@ -19,6 +19,8 @@ ENV PATH="/workspace/.venv/bin:$PATH" \
 WORKDIR /app
 
 COPY --from=builder /workspace/.venv /workspace/.venv
+COPY services/chat/alembic.ini /app/alembic.ini
+COPY services/chat/migrations /app/migrations
 
 RUN mkdir -p /app/chat-data
 

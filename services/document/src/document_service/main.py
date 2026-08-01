@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from document_service.core.config import DOCUMENT_GRPC_ADDRESS, GENERATED_DIR, ensure_directories
-from document_service.db.connection import database_connection, initialize_database
+from document_service.db.connection import database_connection
 from document_service.services.application import document_application
 from document_service.grpc.server import create_grpc_server
 from document_service.api.middleware.request_logging import RequestLoggingMiddleware
@@ -16,7 +16,6 @@ from document_service.api.routes.invoices import router as invoices_router
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    initialize_database()
     grpc_server, _ = create_grpc_server(
         document_application,
         DOCUMENT_GRPC_ADDRESS,

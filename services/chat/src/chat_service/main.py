@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 from chat_service.clients.document import document_client
 from chat_service.core.config import ensure_directories
-from chat_service.db.connection import database_connection, initialize_database
+from chat_service.db.connection import database_connection
 from chat_service.api.middleware.request_logging import RequestLoggingMiddleware
 from chat_service.core.telemetry import configure_logging, configure_tracing, instrument_fastapi_app
 from chat_service.api.routes.ai_chat_memory import router as ai_chat_router
@@ -13,15 +13,10 @@ from chat_service.api.routes.chat_threads import router as chat_threads_router
 from chat_service.api.routes.document_proxy import close_document_proxy_client
 from chat_service.api.routes.document_proxy import router as document_proxy_router
 from chat_service.api.routes.memories import router as memories_router
-from chat_service.db.schema import ensure_chat_schema
-from chat_service.db.repositories.memory import ensure_knowledge_schema
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    initialize_database()
-    ensure_chat_schema()
-    ensure_knowledge_schema()
     try:
         yield
     finally:

@@ -28,6 +28,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /workspace/.venv /workspace/.venv
+COPY services/document/alembic.ini /app/alembic.ini
+COPY services/document/migrations /app/migrations
 
 RUN mkdir -p /app/document-data /app/generated/invoices
 
