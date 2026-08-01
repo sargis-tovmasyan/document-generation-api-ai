@@ -34,7 +34,7 @@ jobs:
         with:
           version: "0.11.32"
           enable-cache: true
-      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libffi8 libjpeg62-turbo libopenjp2-7 libpango-1.0-0 libpangoft2-1.0-0
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libffi8 libjpeg-turbo8 libopenjp2-7 libpango-1.0-0 libpangoft2-1.0-0
       - run: uv sync --frozen --package doco-document-service
       - run: uv run --frozen --package doco-document-service flake8 services/document/src services/document/tests --count --select=E9,F63,F7,F82 --show-source --statistics
       - run: uv run --frozen --package doco-document-service pytest services/document/tests -q
