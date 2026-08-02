@@ -1,0 +1,40 @@
+name: Service CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - run: uv sync --frozen --package doco-chat-service
+      - run: uv run --frozen --package doco-chat-service flake8 services/chat/src services/chat/tests --count --select=E9,F63,F7,F82 --show-source --statistics
+      - run: uv run --frozen --package doco-chat-service pytest services/chat/tests -q
+
+  document:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libffi8 libjpeg-turbo8 libopenjp2-7 libpango-1.0-0 libpangoft2-1.0-0
+      - run: uv sync --frozen --package doco-document-service
+      - run: uv run --frozen --package doco-document-service flake8 services/document/src services/document/tests --count --select=E9,F63,F7,F82 --show-source --statistics
+      - run: uv run --frozen --package doco-document-service pytest services/document/tests -q

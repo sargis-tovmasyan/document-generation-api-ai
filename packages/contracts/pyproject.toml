@@ -1,0 +1,26 @@
+[project]
+name = "doco-backend-contracts"
+version = "0.1.0"
+description = "Generated Python bindings for Doco backend service contracts"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "grpcio==1.71.2",
+    "protobuf>=5.26.1,<6",
+]
+
+[dependency-groups]
+dev = [
+    "grpcio-tools==1.71.2",
+    "pytest>=8.3,<9",
+]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/backend_contracts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

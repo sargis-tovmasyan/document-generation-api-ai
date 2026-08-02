@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package documents.v1;
+
+service DocumentService {
+  rpc ExtractDraft(ExtractDraftRequest) returns (ExtractDraftResponse);
+  rpc CompleteDraft(CompleteDraftRequest) returns (CompleteDraftResponse);
+  rpc CreateDocument(CreateDocumentRequest) returns (CreateDocumentResponse);
+  rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse);
+  rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+  rpc ResetDocuments(ResetDocumentsRequest) returns (ResetDocumentsResponse);
+  rpc GetDownloadDescriptor(GetDownloadDescriptorRequest) returns (GetDownloadDescriptorResponse);
+}
+
+message Money {
+  string decimal_value = 1;
+  string currency = 2;
+}
+
+message Party {
+  string name = 1;
+  string email = 2;
+  string address = 3;
+}
+
+message DraftItem {
+  string description = 1;
+  string quantity_decimal = 2;
+  Money unit_price = 3;
+}
+
+message DocumentDraft {
+  string document_type = 1;
+  string invoice_number = 2;
+  string issue_date = 3;
+  string due_date = 4;
+  string currency = 5;
+  string template_language = 6;
+  Party business = 7;
+  Party client = 8;
+  repeated DraftItem items = 9;
+  string raw_items = 10;
+  string notes = 11;
+  string payment_terms = 12;
+}
+
+message DraftField {
+  string key = 1;
+  string label = 2;
+  string field_type = 3;
+  bool required = 4;
+  string placeholder = 5;
+  repeated string options = 6;
+}
+
+message DraftAnalysis {
+  string status = 1;
+  DocumentDraft draft = 2;
+  repeated string missing_field_keys = 3;
+  repeated DraftField fields_to_show = 4;
+}
+
+message DocumentCreated {
+  int64 document_id = 1;
+  string document_type = 2;
+  string invoice_number = 3;
+  Money subtotal = 4;
+  Money total = 5;
+  string pdf_url = 6;
+  string download_url = 7;
+}
+
+message DocumentSummary {
+  int64 document_id = 1;
+  string document_type = 2;
+  string invoice_number = 3;
+  string issue_date = 4;
+  string due_date = 5;
+  string currency = 6;
+  string business_name = 7;
+  string client_name = 8;
+  Money total = 9;
+  string pdf_url = 10;
+  string created_at = 11;
+}
+
+message DownloadDescriptor {
+  int64 document_id = 1;
+  string document_type = 2;
+  string filename = 3;
+  string media_type = 4;
+  string download_url = 5;
+}
+
+message ExtractDraftRequest {
+  string request_id = 1;
+  string document_type = 2;
+  string message = 3;
+}
+
+message ExtractDraftResponse {
+  DraftAnalysis analysis = 1;
+}
+
+message CompleteDraftRequest {
+  string request_id = 1;
+  string document_type = 2;
+  string idempotency_key = 3;
+  DocumentDraft draft = 4;
+}
+
+message CompleteDraftResponse {
+  oneof result {
+    DraftAnalysis analysis = 1;
+    DocumentCreated created = 2;
+  }
+}
+
+message CreateDocumentRequest {
+  string request_id = 1;
+  string document_type = 2;
+  string idempotency_key = 3;
+  DocumentDraft draft = 4;
+}
+
+message CreateDocumentResponse {
+  DocumentCreated created = 1;
+}
+
+message GetDocumentRequest {
+  string request_id = 1;
+  string document_type = 2;
+  int64 document_id = 3;
+}
+
+message GetDocumentResponse {
+  DocumentSummary document = 1;
+}
+
+message ListDocumentsRequest {
+  string request_id = 1;
+  string document_type = 2;
+}
+
+message ListDocumentsResponse {
+  repeated DocumentSummary documents = 1;
+}
+
+message ResetDocumentsRequest {
+  string request_id = 1;
+  string document_type = 2;
+}
+
+message ResetDocumentsResponse {
+  int64 deleted_documents = 1;
+  int64 deleted_items = 2;
+}
+
+message GetDownloadDescriptorRequest {
+  string request_id = 1;
+  string document_type = 2;
+  int64 document_id = 3;
+}
+
+message GetDownloadDescriptorResponse {
+  DownloadDescriptor descriptor = 1;
+}

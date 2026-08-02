@@ -1,0 +1,44 @@
+services:
+  chat-migrate:
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+    volumes:
+      - ./services/chat/data:/app/chat-data
+  chat-service:
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+    ports:
+      - "${CHAT_SERVICE_PORT:-8000}:8000"
+    volumes:
+      - ./services/chat/data:/app/chat-data
+  document-migrate:
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+    volumes:
+      - ./services/document/data:/app/document-data
+      - ./services/document/generated:/app/generated
+  document-service:
+    environment:
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-local}
+    ports:
+      - "${DOCUMENT_SERVICE_PORT:-8001}:8001"
+      - "127.0.0.1:${DOCUMENT_GRPC_PORT:-50051}:50051"
+    volumes:
+      - ./services/document/data:/app/document-data
+      - ./services/document/generated:/app/generated
+  llama-server:
+    ports:
+      - "127.0.0.1:${LLAMA_SERVER_PORT:-8080}:8080"
+    volumes:
+      - ./models:/models:ro
+  alloy:
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "12345:12345"
+  loki:
+    ports:
+      - "3100:3100"
+  grafana:
+    ports:
+      - "3000:3000"

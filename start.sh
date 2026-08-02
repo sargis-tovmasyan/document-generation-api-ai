@@ -69,14 +69,44 @@ select_accelerator() {
 }
 
 configure_compose_files() {
-    COMPOSE_FILES=(-f docker-compose.yml)
+    COMPOSE_FILES=(-f compose.yaml -f compose.dev.yaml)
     if [ "$1" = "cuda" ]; then
-        COMPOSE_FILES+=(-f docker-compose.gpu.yml)
+        COMPOSE_FILES+=(-f compose.gpu.yaml)
     fi
 }
 
 run_compose() {
     "${COMPOSE_CMD[@]}" "${COMPOSE_FILES[@]}" "$@"
+}
+
+prepare_service_storage() {
+    local root_dir="${1:-${SCRIPT_DIR}}"
+    mkdir -p \
+        "${root_dir}/services/chat/data" \
+        "${root_dir}/services/document/data" \
+        "${root_dir}/services/document/generated/invoices"
+}
+
+migrate_legacy_database() {
+    local legacy_path="${SCRIPT_DIR}/data/app.db"
+    local python_command=""
+
+    if [ ! -f "${legacy_path}" ]; then
+        return 0
+    fi
+    if command -v python3 > /dev/null 2>&1; then
+        python_command=python3
+    elif command -v python > /dev/null 2>&1; then
+        python_command=python
+    else
+        echo "A legacy monolith database exists, but Python is unavailable for migration." >&2
+        return 1
+    fi
+
+    "${python_command}" "${SCRIPT_DIR}/scripts/migrate-monolith-db.py" \
+        --legacy "${legacy_path}" \
+        --chat "${SCRIPT_DIR}/services/chat/data/chat.db" \
+        --documents "${SCRIPT_DIR}/services/document/data/documents.db"
 }
 
 detect_compose() {
@@ -132,6 +162,8 @@ main() {
     fi
 
     cd "${SCRIPT_DIR}"
+    prepare_service_storage "${SCRIPT_DIR}"
+    migrate_legacy_database
 
     if ! command -v docker > /dev/null 2>&1 || ! docker info > /dev/null 2>&1; then
         echo "Docker is not installed or is not running."
@@ -177,9 +209,9 @@ main() {
         echo "Model file already exists: ${model_path}"
     fi
 
-    echo "Starting Document Generation API with llama.cpp and observability stack..."
+    echo "Starting Chat and Document services with llama.cpp and observability..."
 
-    run_compose down
+    run_compose down --remove-orphans
 
     if [ "${FORCE_REBUILD}" = "true" ]; then
         run_compose build --no-cache
@@ -192,9 +224,12 @@ main() {
     echo ""
     run_compose ps
     echo ""
-    echo "Document Generation API started."
-    echo "API:         http://localhost:8000"
-    echo "API docs:    http://localhost:8000/docs"
+    echo "Chat and Document services started."
+    echo "Chat API:       http://localhost:${CHAT_SERVICE_PORT:-8000}"
+    echo "Chat API docs:  http://localhost:${CHAT_SERVICE_PORT:-8000}/docs"
+    echo "Document API:   http://localhost:${DOCUMENT_SERVICE_PORT:-8001}"
+    echo "Document docs:  http://localhost:${DOCUMENT_SERVICE_PORT:-8001}/docs"
+    echo "Document gRPC:  127.0.0.1:${DOCUMENT_GRPC_PORT:-50051}"
     echo "llama.cpp:   http://127.0.0.1:${LLAMA_SERVER_PORT:-8080} (bound to localhost only)"
     echo "Model file:  ${model_path}"
     echo "Model path:  ${LLAMA_MODEL_PATH}"
@@ -226,18 +261,15 @@ main() {
     echo "  2. Login with ${GRAFANA_ADMIN_USER:-admin}/${GRAFANA_ADMIN_PASSWORD:-admin} unless changed"
     echo "  3. Go to Explore"
     echo "  4. Select Loki datasource"
-    echo "  5. Query: {service_name=\"document-generation-api\"} | json"
+    echo "  5. Query: {service_name=~\"chat-service|document-service\"} | json"
     echo ""
     echo "Useful LogQL queries:"
-    echo "  {service_name=\"document-generation-api\"} | json"
-    echo "  {service_name=\"document-generation-api\"} | json | event=\"ai.chat.received\""
-    echo "  {service_name=\"document-generation-api\"} | json | event=\"ai.chat.response.sent\""
-    echo "  {service_name=\"document-generation-api\"} | json | event=\"invoice.extract.response.sent\""
-    echo "  {service_name=\"document-generation-api\"} | json | event=\"invoice.pdf.generated\""
-    echo "  {service_name=\"document-generation-api\"} | json | event=\"llm.request.failed\""
-    echo "  count_over_time({service_name=\"document-generation-api\"} | json | event=\"invoice.service.create.completed\" [5m])"
+    echo "  {service_name=~\"chat-service|document-service\"} | json"
+    echo "  {service_name=\"chat-service\"} | json | event=\"ai.chat.received\""
+    echo "  {service_name=\"document-service\"} | json | event=\"invoice.extract.response.sent\""
     echo ""
-    echo "CLI logs: ${COMPOSE_CMD[*]} ${COMPOSE_FILES[*]} logs -f api"
+    echo "Chat logs: ${COMPOSE_CMD[*]} ${COMPOSE_FILES[*]} logs -f chat-service"
+    echo "Document logs: ${COMPOSE_CMD[*]} ${COMPOSE_FILES[*]} logs -f document-service"
     echo "LLM logs: ${COMPOSE_CMD[*]} ${COMPOSE_FILES[*]} logs -f llama-server"
     echo "Stop all:  ${COMPOSE_CMD[*]} ${COMPOSE_FILES[*]} down"
 }

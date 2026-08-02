@@ -2,10 +2,11 @@
 .env
 .DS_Store
 __pycache__/
+.pytest_cache/
 *.py[cod]
+services/chat/data/*
+services/document/data/*
+services/document/generated/*
 data/*
-generated/*
 models/*
-!data/.gitkeep
-!generated/invoices/.gitkeep
 !models/.gitkeep

@@ -1,6 +1,9 @@
 .git
 .venv
 __pycache__
+.pytest_cache
 *.py[cod]
+services/chat/data
+services/document/data
+services/document/generated
 data
-generated
