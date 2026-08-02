@@ -3,8 +3,8 @@ import unittest
 
 from pydantic import ValidationError
 
-from document_service.schemas import InvoiceDraft
-from document_service.services.invoice_draft_validator import (
+from schemas import InvoiceDraft
+from services.invoice_draft_validator import (
     find_missing_invoice_fields,
     invoice_draft_to_create,
 )

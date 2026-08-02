@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chat_service.db import schema as chat_schema
-from chat_service.db.repositories.chat import (
+from db import schema as chat_schema
+from db.repositories.chat import (
     append_chat_message,
     create_chat_thread,
     list_chat_messages,
@@ -16,7 +16,7 @@ class ChatStoreMetadataTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
 
-        import chat_service.db.connection as database
+        import db.connection as database
 
         database.DATABASE_PATH = Path(self.temp_dir.name) / "app.db"
         chat_schema._ready = False

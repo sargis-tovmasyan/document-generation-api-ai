@@ -18,7 +18,7 @@ def test_chat_document_client_calls_real_grpc_stub() -> None:
     )
     program = """
 import asyncio
-from chat_service.clients.document import DocumentClient
+from clients.document import DocumentClient
 from backend_contracts.documents.v1 import document_service_pb2 as pb2
 from backend_contracts.documents.v1 import document_service_pb2_grpc as pb2_grpc
 import grpc
@@ -76,7 +76,7 @@ def test_chat_document_client_maps_unavailable_status() -> None:
     )
     program = """
 import asyncio
-from chat_service.clients.document import DocumentClient, DocumentUnavailableError
+from clients.document import DocumentClient, DocumentUnavailableError
 from backend_contracts.documents.v1 import document_service_pb2_grpc as pb2_grpc
 import grpc
 

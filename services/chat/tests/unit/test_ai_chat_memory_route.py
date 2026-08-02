@@ -5,13 +5,13 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from chat_service.api.routes.ai_chat import ChatDecision
-from chat_service.clients.document import (
+from api.routes.ai_chat import ChatDecision
+from clients.document import (
     DocumentAnalysis,
     DocumentCompletion,
     DocumentCreated,
 )
-from chat_service.api.routes.ai_chat_memory import (
+from api.routes.ai_chat_memory import (
     AiChatMemoryRequest,
     _answer_chat_message_with_memory,
     _answer_prompt_with_memory,
@@ -21,11 +21,11 @@ from chat_service.api.routes.ai_chat_memory import (
     chat,
     chat_stream,
 )
-from chat_service.schemas import InvoiceDraft, InvoiceListItem
-from chat_service.db import schema as chat_schema
-from chat_service.db.repositories import memory as knowledge_store
-from chat_service.db.repositories.chat import DEFAULT_USER_ID, get_chat_thread, get_session_state, list_chat_messages
-from chat_service.services.llm_metrics import record_llm_response
+from schemas import InvoiceDraft, InvoiceListItem
+from db import schema as chat_schema
+from db.repositories import memory as knowledge_store
+from db.repositories.chat import DEFAULT_USER_ID, get_chat_thread, get_session_state, list_chat_messages
+from services.llm_metrics import record_llm_response
 
 
 def _missing_fields(draft: InvoiceDraft) -> list[str]:
@@ -81,7 +81,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
 
-        import chat_service.db.connection as database
+        import db.connection as database
 
         database.DATABASE_PATH = Path(self.temp_dir.name) / "app.db"
         chat_schema._ready = False
@@ -89,7 +89,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         chat_schema.ensure_chat_schema()
         knowledge_store.ensure_knowledge_schema()
         completion_patcher = patch(
-            "chat_service.api.routes.ai_chat_memory.complete_invoice_draft",
+            "api.routes.ai_chat_memory.complete_invoice_draft",
             AsyncMock(side_effect=_fake_completion),
         )
         self.complete_mock = completion_patcher.start()
@@ -98,14 +98,14 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_chat_creates_thread_and_persists_messages(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="answer")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory._answer_chat_message_with_memory",
+                "api.routes.ai_chat_memory._answer_chat_message_with_memory",
                 AsyncMock(return_value="Hi, how can I help?"),
             ),
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+            patch("api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             response = await chat(AiChatMemoryRequest(message="Hi"))
 
@@ -128,12 +128,12 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with (
-            patch("chat_service.api.routes.ai_chat_memory._decide_chat_action", decision_mock),
+            patch("api.routes.ai_chat_memory._decide_chat_action", decision_mock),
             patch(
-                "chat_service.api.routes.ai_chat_memory._extract_invoice_draft_for_chat",
+                "api.routes.ai_chat_memory._extract_invoice_draft_for_chat",
                 AsyncMock(return_value=draft),
             ),
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", learning_mock),
+            patch("api.routes.ai_chat_memory._learn_from_turn", learning_mock),
         ):
             response = await chat_stream(
                 AiChatMemoryRequest(message="Create invoice INV-STREAM-001 for Beta LLC")
@@ -167,13 +167,13 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="answer", context="none")),
             ),
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
-            patch("chat_service.api.routes.ai_chat_memory.get_request_id", return_value="request-123"),
-            patch("chat_service.api.routes.ai_chat_memory.get_trace_id", return_value="trace-456"),
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+            patch("api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+            patch("api.routes.ai_chat_memory.get_request_id", return_value="request-123"),
+            patch("api.routes.ai_chat_memory.get_trace_id", return_value="trace-456"),
+            patch("api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             response = await chat_stream(AiChatMemoryRequest(message="Hi"))
             chunks = [chunk async for chunk in response.body_iterator]
@@ -209,14 +209,14 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="create_invoice")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory._extract_invoice_draft_for_chat",
+                "api.routes.ai_chat_memory._extract_invoice_draft_for_chat",
                 AsyncMock(return_value=first_draft),
             ),
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+            patch("api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             first_response = await chat(AiChatMemoryRequest(message="Create invoice INV-010 for Alex"))
 
@@ -226,14 +226,14 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="answer")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory._extract_invoice_draft_for_chat",
+                "api.routes.ai_chat_memory._extract_invoice_draft_for_chat",
                 AsyncMock(return_value=second_draft),
             ),
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+            patch("api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             second_response = await chat(
                 AiChatMemoryRequest(chat_id=chat_id, message="Issue date is 2026-07-04, USD, Design 300")
@@ -249,15 +249,15 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_invoice_message_does_not_call_invoice_endpoint(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="list_invoices")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory._answer_chat_message_with_memory",
+                "api.routes.ai_chat_memory._answer_chat_message_with_memory",
                 AsyncMock(return_value="Sounds great. What details should we plan?"),
             ),
-            patch("chat_service.api.routes.ai_chat_memory.list_invoices") as list_invoices_mock,
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+            patch("api.routes.ai_chat_memory.list_invoices") as list_invoices_mock,
+            patch("api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             response = await chat(AiChatMemoryRequest(message="Lets made a BBQ!"))
 
@@ -279,14 +279,14 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="list_invoices")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.list_invoices",
+                "api.routes.ai_chat_memory.list_invoices",
                 AsyncMock(return_value=[invoice]),
             ),
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+            patch("api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             response = await chat(AiChatMemoryRequest(message="List my invoices"))
 
@@ -299,7 +299,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_answer_prompt_uses_selected_memory_context(self) -> None:
         with patch(
-            "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+            "api.routes.ai_chat_memory.llm_client.complete_prompt",
             AsyncMock(side_effect=['{"context":"saved_memory"}', "Use USD for Alex."]),
         ) as complete_mock:
             answer = await _answer_chat_message_with_memory(
@@ -332,7 +332,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_greeting_uses_no_context_and_no_memory_text(self) -> None:
         with patch(
-            "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+            "api.routes.ai_chat_memory.llm_client.complete_prompt",
             AsyncMock(side_effect=['{"context":"none"}', "Hi, how can I help?"]),
         ) as complete_mock:
             answer = await _answer_chat_message_with_memory(
@@ -350,7 +350,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_flower_request_uses_no_context_and_no_memory_text(self) -> None:
         with patch(
-            "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+            "api.routes.ai_chat_memory.llm_client.complete_prompt",
             AsyncMock(side_effect=['{"context":"none"}', "1. Rose, 2. Sunflower, 3. Tulip, 4. Daisy, 5. Lily."]),
         ) as complete_mock:
             answer = await _answer_chat_message_with_memory(
@@ -367,7 +367,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("User asked me to remember color Blue", prompt)
 
     async def test_context_selection_skips_llm_when_no_context_exists(self) -> None:
-        with patch("chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock()) as complete_mock:
+        with patch("api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock()) as complete_mock:
             context = await _select_answer_context(
                 message="name 5 flowers",
                 recent_messages=[],
@@ -398,10 +398,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value='{"context":"none"}'),
             ) as complete_mock,
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+            patch("api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
         ):
             chunks = [
                 chunk
@@ -426,8 +426,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             yield 'There are 3 "r" letters in "raspberry".'
 
         with (
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+            patch("api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
         ):
             chunks = [
                 chunk
@@ -448,7 +448,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_answer_removes_memory_context_leak(self) -> None:
         with patch(
-            "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+            "api.routes.ai_chat_memory.llm_client.complete_prompt",
             AsyncMock(
                 return_value=(
                     "Sounds great! Let's plan the details together. "
@@ -473,8 +473,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                 yield chunk
 
         with (
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+            patch("api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
         ):
             chunks = [
                 chunk
@@ -501,7 +501,7 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
             ]:
                 yield chunk
 
-        with patch("chat_service.api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
+        with patch("api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream):
             chunks = [
                 chunk
                 async for chunk in _stream_answer_with_memory(
@@ -529,8 +529,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                 yield chunk
 
         with (
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+            patch("api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
         ):
             chunks = [
                 chunk
@@ -555,8 +555,8 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
                 yield chunk
 
         with (
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
+            patch("api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock(return_value='{"context":"none"}')),
+            patch("api.routes.ai_chat_memory.llm_client.stream_prompt", fake_stream),
         ):
             chunks = [
                 chunk
@@ -578,11 +578,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_memory_request_without_value_asks_for_value(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value='{"has_memory":false,"memory":""}'),
             ),
         ):
@@ -594,11 +594,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_remembers_and_recalls_number(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value='{"has_memory":true,"memory":"number 1234"}'),
             ),
         ):
@@ -611,11 +611,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="recall_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value="The number you asked me to remember is 1234."),
             ) as complete_mock,
         ):
@@ -634,11 +634,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_requested_memory_does_not_leak_to_other_chats(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value='{"has_memory":true,"memory":"number 1234"}'),
             ),
         ):
@@ -646,10 +646,10 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="recall_memory")),
             ),
-            patch("chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock()) as complete_mock,
+            patch("api.routes.ai_chat_memory.llm_client.complete_prompt", AsyncMock()) as complete_mock,
         ):
             recall_response = await chat(AiChatMemoryRequest(message="what number did I ask you to remember?"))
 
@@ -660,11 +660,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_remembers_number_when_extractor_misses_explicit_value(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value='{"has_memory":false,"memory":""}'),
             ),
         ):
@@ -673,11 +673,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
         chat_id = remember_response["chat_id"]
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="recall_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value="The number you asked me to remember is 1234."),
             ),
         ):
@@ -690,11 +690,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_pending_number_request_saves_follow_up_value(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value='{"has_memory":true,"memory":"for me the number and remind me when I ask"}'),
             ),
         ):
@@ -711,11 +711,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="recall_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value="The number you asked me to remember is 42."),
             ),
         ):
@@ -728,27 +728,27 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_follow_up_ordinal_question_uses_recent_assistant_list(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="answer")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory._answer_chat_message_with_memory",
+                "api.routes.ai_chat_memory._answer_chat_message_with_memory",
                 AsyncMock(return_value="1. Rose, 2. Sunflower, 3. Tulip, 4. Daisy, 5. Lily."),
             ),
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+            patch("api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             first_response = await chat(AiChatMemoryRequest(message="Name me 5 flowers."))
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory", context="recent_chat")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value="The 3rd flower was Tulip."),
             ),
-            patch("chat_service.api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
+            patch("api.routes.ai_chat_memory._learn_from_turn", AsyncMock()),
         ):
             second_response = await chat(
                 AiChatMemoryRequest(chat_id=first_response["chat_id"], message="what is the 3th flower you named?")
@@ -761,11 +761,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_remembers_number_with_colon_value(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value='{"has_memory":true,"memory":"number: 58 Color: Blue"}'),
             ),
         ):
@@ -777,11 +777,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_remembers_and_recalls_color(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="remember_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value='{"has_memory":true,"memory":"color Blue"}'),
             ),
         ):
@@ -789,11 +789,11 @@ class AiChatMemoryRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat_memory._decide_chat_action",
+                "api.routes.ai_chat_memory._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="recall_memory")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat_memory.llm_client.complete_prompt",
+                "api.routes.ai_chat_memory.llm_client.complete_prompt",
                 AsyncMock(return_value="The color you asked me to remember is Blue."),
             ),
         ):

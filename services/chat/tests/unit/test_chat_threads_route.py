@@ -4,9 +4,9 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from chat_service.api.routes.chat_threads import ChatErrorCreateRequest, create_chat_error
-from chat_service.db import schema as chat_schema
-from chat_service.db.repositories.chat import create_chat_thread, list_chat_messages
+from api.routes.chat_threads import ChatErrorCreateRequest, create_chat_error
+from db import schema as chat_schema
+from db.repositories.chat import create_chat_thread, list_chat_messages
 
 
 class ChatThreadsRouteTests(unittest.TestCase):
@@ -14,7 +14,7 @@ class ChatThreadsRouteTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
 
-        import chat_service.db.connection as database
+        import db.connection as database
 
         database.DATABASE_PATH = Path(self.temp_dir.name) / "app.db"
         chat_schema._ready = False

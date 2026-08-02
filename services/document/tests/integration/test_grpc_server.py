@@ -18,7 +18,7 @@ def test_document_grpc_server_handles_reset_over_a_real_channel() -> None:
     )
     program = """
 import asyncio
-from document_service.grpc.server import create_grpc_server
+from transport.grpc.server import create_grpc_server
 from backend_contracts.documents.v1 import document_service_pb2 as pb2
 from backend_contracts.documents.v1 import document_service_pb2_grpc as pb2_grpc
 import grpc
@@ -66,8 +66,8 @@ def test_document_grpc_server_maps_not_found_to_typed_status() -> None:
     )
     program = """
 import asyncio
-from document_service.services.errors import DocumentNotFoundError
-from document_service.grpc.server import create_grpc_server
+from services.errors import DocumentNotFoundError
+from transport.grpc.server import create_grpc_server
 from backend_contracts.documents.v1 import document_service_pb2 as pb2
 from backend_contracts.documents.v1 import document_service_pb2_grpc as pb2_grpc
 import grpc

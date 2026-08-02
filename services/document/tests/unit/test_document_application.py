@@ -3,8 +3,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from document_service.services.application import DocumentApplicationService
-from document_service.services.errors import (
+from services.application import DocumentApplicationService
+from services.errors import (
     DocumentConflictError,
     DocumentExtractionInvalidError,
     DocumentExtractionUnavailableError,
@@ -12,10 +12,10 @@ from document_service.services.errors import (
     DocumentItemsUnavailableError,
     DocumentNotFoundError,
 )
-from document_service.schemas import InvoiceCreate, InvoiceDraft
-from document_service.services.ai_invoice_extractor import AiInvoiceParseError
-from document_service.db.repositories.invoices import InvoiceNumberConflictError
-from document_service.clients.llm import LlmServiceError
+from schemas import InvoiceCreate, InvoiceDraft
+from services.ai_invoice_extractor import AiInvoiceParseError
+from db.repositories.invoices import InvoiceNumberConflictError
+from clients.llm import LlmServiceError
 
 
 COMPLETE_DRAFT = InvoiceDraft.model_validate(

@@ -1,7 +1,7 @@
 import httpx
 from fastapi.testclient import TestClient
-from chat_service.main import app
-from chat_service.api.routes import document_proxy
+from main import app
+from api.routes import document_proxy
 
 
 def test_proxy_preserves_request_and_upstream_response() -> None:

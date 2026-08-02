@@ -2,7 +2,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from document_service.schemas import AiTestRequest, InvoiceCreate
+from schemas import AiTestRequest, InvoiceCreate
 
 
 class InvoiceCreateSchemaTests(unittest.TestCase):

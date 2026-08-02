@@ -11,7 +11,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[4]
 
 def test_document_service_owns_only_document_source() -> None:
     assert not (BACKEND_ROOT / "app").exists()
-    for source_path in (DOCUMENT_ROOT / "src" / "document_service").rglob("*.py"):
+    for source_path in (DOCUMENT_ROOT / "src").rglob("*.py"):
         tree = ast.parse(source_path.read_text(encoding="utf-8"))
         imported_modules = []
         for node in ast.walk(tree):
@@ -44,7 +44,7 @@ def test_document_service_startup_does_not_create_schema(tmp_path: Path) -> None
     program = """
 import sqlite3
 from fastapi.testclient import TestClient
-from document_service.main import app
+from main import app
 
 with TestClient(app):
     pass

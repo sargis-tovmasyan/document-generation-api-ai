@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import httpx
 
-from chat_service.clients.llm import LlmClient, LlmServiceError
-from chat_service.services.llm_metrics import LlmRequestMetrics, reset_llm_request_metrics, set_llm_request_metrics
+from clients.llm import LlmClient, LlmServiceError
+from services.llm_metrics import LlmRequestMetrics, reset_llm_request_metrics, set_llm_request_metrics
 
 
 class FakeResponse:
@@ -91,11 +91,11 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_sends_completion_request_and_returns_trimmed_content(self) -> None:
         with (
-            patch("chat_service.clients.llm.LLM_BASE_URL", "http://llama.test:8080"),
-            patch("chat_service.clients.llm.LLM_COMPLETION_ENDPOINT", "/completion"),
-            patch("chat_service.clients.llm.LLM_MAX_TOKENS", 80),
-            patch("chat_service.clients.llm.LLM_TEMPERATURE", 0.4),
-            patch("chat_service.clients.llm.httpx.AsyncClient", FakeAsyncClient),
+            patch("clients.llm.LLM_BASE_URL", "http://llama.test:8080"),
+            patch("clients.llm.LLM_COMPLETION_ENDPOINT", "/completion"),
+            patch("clients.llm.LLM_MAX_TOKENS", 80),
+            patch("clients.llm.LLM_TEMPERATURE", 0.4),
+            patch("clients.llm.httpx.AsyncClient", FakeAsyncClient),
         ):
             answer = await LlmClient().complete("Create an invoice note.")
 
@@ -117,7 +117,7 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with (
-            patch("chat_service.clients.llm.httpx.AsyncClient", FakeAsyncClient),
+            patch("clients.llm.httpx.AsyncClient", FakeAsyncClient),
             self.assertRaisesRegex(
                 LlmServiceError,
                 "Local LLM request failed: Connection refused",
@@ -128,13 +128,13 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_includes_json_schema_when_provided(self) -> None:
         schema = {"type": "object"}
 
-        with patch("chat_service.clients.llm.httpx.AsyncClient", FakeAsyncClient):
+        with patch("clients.llm.httpx.AsyncClient", FakeAsyncClient):
             await LlmClient().complete_prompt("Return JSON.", json_schema=schema)
 
         self.assertEqual(FakeAsyncClient.last_payload["json_schema"], schema)
 
     async def test_allows_completion_options(self) -> None:
-        with patch("chat_service.clients.llm.httpx.AsyncClient", FakeAsyncClient):
+        with patch("clients.llm.httpx.AsyncClient", FakeAsyncClient):
             await LlmClient().complete_prompt(
                 "Choose an action.",
                 max_tokens=8,
@@ -148,7 +148,7 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
         FakeAsyncClient.response = FakeResponse(invalid_json=True)
 
         with (
-            patch("chat_service.clients.llm.httpx.AsyncClient", FakeAsyncClient),
+            patch("clients.llm.httpx.AsyncClient", FakeAsyncClient),
             self.assertRaisesRegex(LlmServiceError, "returned invalid JSON"),
         ):
             await LlmClient().complete("Create an invoice note.")
@@ -157,7 +157,7 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
         FakeAsyncClient.response = FakeResponse({"content": "   "})
 
         with (
-            patch("chat_service.clients.llm.httpx.AsyncClient", FakeAsyncClient),
+            patch("clients.llm.httpx.AsyncClient", FakeAsyncClient),
             self.assertRaisesRegex(LlmServiceError, "returned an empty answer"),
         ):
             await LlmClient().complete("Create an invoice note.")
@@ -166,7 +166,7 @@ class LlmClientTests(unittest.IsolatedAsyncioTestCase):
         metrics = LlmRequestMetrics(request_id="request-1", trace_id="trace-1")
         token = set_llm_request_metrics(metrics)
         try:
-            with patch("chat_service.clients.llm.httpx.AsyncClient", FakeStreamingClient):
+            with patch("clients.llm.httpx.AsyncClient", FakeStreamingClient):
                 chunks = [chunk async for chunk in LlmClient().stream_prompt("Say hi")]
         finally:
             reset_llm_request_metrics(token)

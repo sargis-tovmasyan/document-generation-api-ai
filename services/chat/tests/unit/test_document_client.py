@@ -1,7 +1,7 @@
 from decimal import Decimal
 import unittest
-from chat_service.clients.document import DocumentClient
-from chat_service.schemas import InvoiceDraft
+from clients.document import DocumentClient
+from schemas import InvoiceDraft
 from backend_contracts.documents.v1 import document_service_pb2 as pb2
 
 

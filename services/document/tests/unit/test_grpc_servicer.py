@@ -4,9 +4,9 @@ import unittest
 
 from pathlib import Path
 
-from document_service.schemas.results import DocumentCreated, DownloadDescriptor, DraftAnalysis, DraftCompletion
-from document_service.grpc.servicer import DocumentGrpcServicer
-from document_service.schemas import InvoiceCreate, InvoiceDraft, InvoiceListItem
+from schemas.results import DocumentCreated, DownloadDescriptor, DraftAnalysis, DraftCompletion
+from transport.grpc.servicer import DocumentGrpcServicer
+from schemas import InvoiceCreate, InvoiceDraft, InvoiceListItem
 from backend_contracts.documents.v1 import document_service_pb2 as pb2
 
 

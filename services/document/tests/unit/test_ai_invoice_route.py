@@ -5,15 +5,15 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from document_service.services.errors import (
+from services.errors import (
     DocumentConflictError,
     DocumentExtractionInvalidError,
     DocumentExtractionUnavailableError,
 )
-from document_service.schemas.results import DocumentCreated, DraftAnalysis, DraftCompletion
-from document_service.api.routes.ai_invoice import extract_invoice_draft, generate_invoice_from_message
-from document_service.schemas import AiInvoiceExtractRequest, InvoiceDraft
-from document_service.services.document_template_fields import invoice_fields_to_show
+from schemas.results import DocumentCreated, DraftAnalysis, DraftCompletion
+from api.routes.ai_invoice import extract_invoice_draft, generate_invoice_from_message
+from schemas import AiInvoiceExtractRequest, InvoiceDraft
+from services.document_template_fields import invoice_fields_to_show
 
 
 def complete_draft() -> InvoiceDraft:
@@ -64,7 +64,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
             fields_to_show=invoice_fields_to_show(missing_fields),
         )
 
-        with patch("document_service.api.routes.ai_invoice.document_application") as application:
+        with patch("api.routes.ai_invoice.document_application") as application:
             application.extract_and_analyze = AsyncMock(return_value=analysis)
             response = await extract_invoice_draft(
                 AiInvoiceExtractRequest(message="Create an invoice for Alex.")
@@ -82,7 +82,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
             fields_to_show=[],
         )
 
-        with patch("document_service.api.routes.ai_invoice.document_application") as application:
+        with patch("api.routes.ai_invoice.document_application") as application:
             application.extract_and_analyze = AsyncMock(return_value=analysis)
             response = await extract_invoice_draft(
                 AiInvoiceExtractRequest(message="Create an invoice.")
@@ -95,7 +95,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_generates_invoice_from_complete_ai_draft(self) -> None:
         completion = DraftCompletion(created=created_document())
 
-        with patch("document_service.api.routes.ai_invoice.document_application") as application:
+        with patch("api.routes.ai_invoice.document_application") as application:
             application.generate_from_message = AsyncMock(return_value=completion)
             response = await generate_invoice_from_message(
                 AiInvoiceExtractRequest(message="Create an invoice.")
@@ -114,7 +114,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
             fields_to_show=invoice_fields_to_show(["invoice_number"]),
         )
 
-        with patch("document_service.api.routes.ai_invoice.document_application") as application:
+        with patch("api.routes.ai_invoice.document_application") as application:
             application.generate_from_message = AsyncMock(
                 return_value=DraftCompletion(analysis=analysis)
             )
@@ -127,7 +127,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.fields_to_show[0].key, "invoice_number")
 
     async def test_generate_maps_document_conflict_to_409(self) -> None:
-        with patch("document_service.api.routes.ai_invoice.document_application") as application:
+        with patch("api.routes.ai_invoice.document_application") as application:
             application.generate_from_message = AsyncMock(
                 side_effect=DocumentConflictError("Invoice number exists")
             )
@@ -140,7 +140,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.exception.detail, "Invoice number exists")
 
     async def test_returns_llm_unavailable_response(self) -> None:
-        with patch("document_service.api.routes.ai_invoice.document_application") as application:
+        with patch("api.routes.ai_invoice.document_application") as application:
             application.extract_and_analyze = AsyncMock(
                 side_effect=DocumentExtractionUnavailableError("offline")
             )
@@ -153,7 +153,7 @@ class AiInvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'"status":"llm_unavailable"', response.body)
 
     async def test_returns_parse_error_response(self) -> None:
-        with patch("document_service.api.routes.ai_invoice.document_application") as application:
+        with patch("api.routes.ai_invoice.document_application") as application:
             application.extract_and_analyze = AsyncMock(
                 side_effect=DocumentExtractionInvalidError("bad JSON")
             )

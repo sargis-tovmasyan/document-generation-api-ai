@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from chat_service.api.routes.ai_chat import (
+from api.routes.ai_chat import (
     CHAT_DECISION_SCHEMA,
     ChatDecision,
     _answer_chat_message,
@@ -13,14 +13,14 @@ from chat_service.api.routes.ai_chat import (
     _decide_chat_action,
     chat,
 )
-from chat_service.schemas import AiChatRequest, InvoiceDraft
-from chat_service.clients.document import (
+from schemas import AiChatRequest, InvoiceDraft
+from clients.document import (
     DocumentAnalysis,
     DocumentCompletion,
     DocumentConflictError,
     DocumentCreated,
 )
-from chat_service.clients.llm import LlmServiceError
+from clients.llm import LlmServiceError
 
 
 def _missing_fields(draft: InvoiceDraft) -> list[str]:
@@ -74,7 +74,7 @@ async def _fake_completion(draft: InvoiceDraft, **kwargs) -> DocumentCompletion:
 class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         patcher = patch(
-            "chat_service.api.routes.ai_chat.complete_invoice_draft",
+            "api.routes.ai_chat.complete_invoice_draft",
             AsyncMock(side_effect=_fake_completion),
         )
         patcher.start()
@@ -184,7 +184,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_retry_request_is_routed_with_recent_chat_context(self) -> None:
         self.assertIn("context", CHAT_DECISION_SCHEMA["required"])
         with patch(
-            "chat_service.api.routes.ai_chat.llm_client.complete_prompt",
+            "api.routes.ai_chat.llm_client.complete_prompt",
             AsyncMock(return_value='{"action":"answer","context":"recent_chat"}'),
         ) as complete_mock:
             decision = await _decide_chat_action(
@@ -204,7 +204,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_answer_prompt_can_request_internal_thinking(self) -> None:
         with patch(
-            "chat_service.api.routes.ai_chat.llm_client.complete_prompt",
+            "api.routes.ai_chat.llm_client.complete_prompt",
             AsyncMock(return_value="Hi! How can I help?"),
         ) as complete_mock:
             answer = await _answer_chat_message("Hi", thinking_enabled=True)
@@ -216,7 +216,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_returns_simple_answer_from_llm_decision(self) -> None:
         with patch(
-            "chat_service.api.routes.ai_chat._decide_chat_action",
+            "api.routes.ai_chat._decide_chat_action",
             AsyncMock(
                 return_value=ChatDecision(
                     action="answer",
@@ -224,7 +224,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
                 )
             ),
         ), patch(
-            "chat_service.api.routes.ai_chat._answer_chat_message",
+            "api.routes.ai_chat._answer_chat_message",
             AsyncMock(return_value="Hi, how can I help with your documents today?"),
         ):
             response = await chat(AiChatRequest(message="hi"))
@@ -235,7 +235,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_lists_invoices_when_llm_selects_invoice_list(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(
                     return_value=ChatDecision(
                         action="list_invoices",
@@ -244,7 +244,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ),
             patch(
-                "chat_service.api.routes.ai_chat.list_invoices",
+                "api.routes.ai_chat.list_invoices",
                 return_value=[
                     {
                         "id": 2,
@@ -270,10 +270,10 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_lists_invoices_when_llm_outputs_action_token(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat.llm_client.complete_prompt",
+                "api.routes.ai_chat.llm_client.complete_prompt",
                 AsyncMock(return_value="list_invoices"),
             ) as complete_mock,
-            patch("chat_service.api.routes.ai_chat.list_invoices", return_value=[]),
+            patch("api.routes.ai_chat.list_invoices", return_value=[]),
         ):
             response = await chat(AiChatRequest(message="Show me all my invoices"))
 
@@ -284,14 +284,14 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_non_invoice_message_does_not_call_invoice_endpoint(self) -> None:
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="list_invoices")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat._answer_chat_message",
+                "api.routes.ai_chat._answer_chat_message",
                 AsyncMock(return_value="Sounds great. What details should we plan?"),
             ),
-            patch("chat_service.api.routes.ai_chat.list_invoices") as list_invoices_mock,
+            patch("api.routes.ai_chat.list_invoices") as list_invoices_mock,
         ):
             response = await chat(AiChatRequest(message="Lets made a BBQ!"))
 
@@ -318,7 +318,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(
                     return_value=ChatDecision(
                         action="create_invoice",
@@ -326,7 +326,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
                     )
                 ),
             ),
-            patch("chat_service.api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
+            patch("api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
         ):
             response = await chat(AiChatRequest(message="create invoice INV-001"))
 
@@ -338,7 +338,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(
                     return_value=ChatDecision(
                         action="create_invoice",
@@ -346,7 +346,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
                     )
                 ),
             ),
-            patch("chat_service.api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
+            patch("api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
         ):
             response = await chat(AiChatRequest(message="create invoice for Alex"))
 
@@ -364,11 +364,11 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="create_invoice")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat._extract_draft_or_error",
+                "api.routes.ai_chat._extract_draft_or_error",
                 AsyncMock(return_value=parse_error),
             ),
         ):
@@ -391,11 +391,11 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="create_invoice")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat._extract_draft_or_error",
+                "api.routes.ai_chat._extract_draft_or_error",
                 AsyncMock(return_value=parse_error),
             ),
         ):
@@ -422,11 +422,11 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="create_invoice")),
             ),
             patch(
-                "chat_service.api.routes.ai_chat._extract_draft_or_error",
+                "api.routes.ai_chat._extract_draft_or_error",
                 AsyncMock(return_value=parse_error),
             ),
         ):
@@ -456,10 +456,10 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="create_invoice")),
             ),
-            patch("chat_service.api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
+            patch("api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
         ):
             response = await chat(
                 AiChatRequest(
@@ -483,10 +483,10 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(return_value=ChatDecision(action="create_invoice")),
             ),
-            patch("chat_service.api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
+            patch("api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
         ):
             response = await chat(
                 AiChatRequest(
@@ -503,7 +503,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_maps_llm_unavailable_to_503(self) -> None:
         with patch(
-            "chat_service.api.routes.ai_chat._decide_chat_action",
+            "api.routes.ai_chat._decide_chat_action",
             AsyncMock(side_effect=LlmServiceError("offline")),
         ):
             response = await chat(AiChatRequest(message="hi"))
@@ -532,7 +532,7 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "chat_service.api.routes.ai_chat._decide_chat_action",
+                "api.routes.ai_chat._decide_chat_action",
                 AsyncMock(
                     return_value=ChatDecision(
                         action="create_invoice",
@@ -540,9 +540,9 @@ class AiChatRouteTests(unittest.IsolatedAsyncioTestCase):
                     )
                 ),
             ),
-            patch("chat_service.api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
+            patch("api.routes.ai_chat._extract_draft_or_error", AsyncMock(return_value=draft)),
             patch(
-                "chat_service.api.routes.ai_chat.complete_invoice_draft",
+                "api.routes.ai_chat.complete_invoice_draft",
                 AsyncMock(side_effect=DocumentConflictError("Invoice number exists")),
             ),
         ):

@@ -2,7 +2,7 @@ import re
 import unittest
 from decimal import Decimal
 
-from document_service.db.repositories.invoices import (
+from db.repositories.invoices import (
     build_pdf_filename,
     calculate_item_amount,
     format_decimal,

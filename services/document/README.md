@@ -8,7 +8,7 @@ From the workspace root:
 uv sync --frozen --package doco-document-service
 DOCUMENT_DATABASE_PATH=services/document/data/documents.db uv run --package doco-document-service alembic -c services/document/alembic.ini upgrade head
 uv run --frozen --package doco-document-service pytest services/document/tests -q
-uv run --frozen --package doco-document-service uvicorn document_service.main:app --port 8001
+uv run --frozen --package doco-document-service uvicorn main:app --port 8001
 docker build -f services/document/Dockerfile -t doco-document-service .
 ```
 

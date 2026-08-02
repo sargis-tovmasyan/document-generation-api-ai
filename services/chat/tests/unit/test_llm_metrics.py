@@ -1,6 +1,6 @@
 import unittest
 
-from chat_service.services.llm_metrics import LlmRequestMetrics
+from services.llm_metrics import LlmRequestMetrics
 
 
 class LlmRequestMetricsTests(unittest.TestCase):

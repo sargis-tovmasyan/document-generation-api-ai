@@ -7,32 +7,32 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
-from document_service.services.errors import (
+from services.errors import (
     DocumentConflictError,
     DocumentItemsInvalidError,
     DocumentItemsUnavailableError,
     DocumentNotFoundError,
 )
-from document_service.schemas.results import (
+from schemas.results import (
     DocumentCreated,
     DownloadDescriptor,
     DraftAnalysis,
     DraftCompletion,
 )
-from document_service.api.routes.invoices import (
+from api.routes.invoices import (
     complete_invoice_draft,
     create_invoice_endpoint,
     download_invoice_endpoint,
     list_invoices_endpoint,
     reset_invoices_endpoint,
 )
-from document_service.schemas import (
+from schemas import (
     InvoiceCreate,
     InvoiceDraft,
     InvoiceDraftCompleteRequest,
     InvoiceListItem,
 )
-from document_service.services.document_template_fields import invoice_fields_to_show
+from services.document_template_fields import invoice_fields_to_show
 
 
 def complete_draft() -> InvoiceDraft:
@@ -88,7 +88,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
             fields_to_show=invoice_fields_to_show(missing_fields),
         )
 
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.complete_draft = AsyncMock(
                 return_value=DraftCompletion(analysis=analysis)
             )
@@ -101,7 +101,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_creates_invoice_from_complete_draft(self) -> None:
         payload = InvoiceDraftCompleteRequest(draft=complete_draft())
 
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.complete_draft = AsyncMock(
                 return_value=DraftCompletion(created=created_document())
             )
@@ -117,7 +117,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
             chat_id="chat-1",
         )
 
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.complete_draft = AsyncMock(
                 return_value=DraftCompletion(created=created_document())
             )
@@ -129,7 +129,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_item_normalization_unavailable_maps_to_503(self) -> None:
         payload = InvoiceDraftCompleteRequest(draft=complete_draft())
 
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.complete_draft = AsyncMock(
                 side_effect=DocumentItemsUnavailableError("offline")
             )
@@ -145,7 +145,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_items_map_to_422(self) -> None:
         payload = InvoiceDraftCompleteRequest(draft=complete_draft())
 
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.complete_draft = AsyncMock(
                 side_effect=DocumentItemsInvalidError("bad items")
             )
@@ -156,7 +156,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Could not understand invoice items", context.exception.detail)
 
     def test_direct_create_preserves_generated_pdf_url(self) -> None:
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.create_document.return_value = created_document()
             response = create_invoice_endpoint(complete_invoice())
 
@@ -164,7 +164,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.pdf_url, "/generated/invoices/file.pdf")
 
     def test_direct_create_maps_conflict_to_409(self) -> None:
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.create_document.side_effect = DocumentConflictError(
                 "Invoice number exists"
             )
@@ -189,7 +189,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
         )
         reset = {"deleted_invoices": 1, "deleted_items": 1}
 
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.list_documents.return_value = [listed]
             application.reset_documents.return_value = reset
 
@@ -204,7 +204,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
             path=Path(__file__),
         )
 
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             application.get_download_descriptor.return_value = descriptor
             response = download_invoice_endpoint(7)
 
@@ -214,7 +214,7 @@ class InvoiceRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("invoice.pdf", response.headers["content-disposition"])
 
     def test_download_preserves_missing_record_and_file_details(self) -> None:
-        with patch("document_service.api.routes.invoices.document_application") as application:
+        with patch("api.routes.invoices.document_application") as application:
             for detail in ("Invoice not found", "Generated PDF file not found"):
                 application.get_download_descriptor.side_effect = (
                     DocumentNotFoundError(detail)

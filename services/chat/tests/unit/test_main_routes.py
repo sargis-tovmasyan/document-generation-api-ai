@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from chat_service.main import app
+from main import app
 
 
 def test_chat_service_registers_chat_and_stream_routes() -> None:

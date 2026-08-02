@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock
 
-from document_service.services.ai_invoice_extractor import (
+from services.ai_invoice_extractor import (
     AiInvoiceExtractor,
     AiInvoiceParseError,
 )
